@@ -181,6 +181,7 @@ jobs:
         run: |
           APP_PATH="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/AuthPilot.app"
           cp ~/Library/MobileDevice/Provisioning\ Profiles/AuthPilot.provisionprofile "$APP_PATH/Contents/embedded.provisionprofile"
+          xattr -cr "$APP_PATH"
           codesign --force --deep --sign "Apple Distribution: Mohamed Elbssir (UD29PDQT67)" \
             --entitlements src-tauri/Entitlements.plist \
             "$APP_PATH"
