@@ -90,6 +90,4 @@ jobs:
             - **Linux**: `.deb` / `.AppImage`
           releaseDraft: false
           prerelease: false
-          releaseDraft: false
-          prerelease: false
           args: ${{ matrix.args }}
