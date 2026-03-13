@@ -197,54 +197,54 @@ export const ProjectsPage: React.FC = () => {
                     const totalCount = secretFields.length;
 
                     return (
-                    <div key={env.id} className="rounded-lg border p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline">{env.name}</Badge>
-                          <span className="text-xs text-muted-foreground font-mono">{env.slug}</span>
-                          <Badge
-                            variant={filledCount === totalCount ? "success" : filledCount > 0 ? "secondary" : "outline"}
-                            className="text-xs"
-                          >
-                            {filledCount}/{totalCount}
-                          </Badge>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            deleteEnvironment(selectedProject.id, selectedApp.id, env.id)
-                          }
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                      <div className="space-y-2">
-                        {secretFields.map((field) => (
-                          <div key={field.key}>
-                            <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                              {field.label}
-                            </label>
-                            <SecretField
-                              value={env.secrets[field.key] || ""}
-                              label={field.label}
-                              editable
-                              initiallyHidden={field.sensitive}
-                              onChange={(v) =>
-                                updateEnvironmentSecret(
-                                  selectedProject.id,
-                                  selectedApp.id,
-                                  env.id,
-                                  field.key,
-                                  v
-                                )
-                              }
-                              placeholder={field.placeholder}
-                            />
+                      <div key={env.id} className="rounded-lg border p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline">{env.name}</Badge>
+                            <span className="text-xs text-muted-foreground font-mono">{env.slug}</span>
+                            <Badge
+                              variant={filledCount === totalCount ? "success" : filledCount > 0 ? "secondary" : "outline"}
+                              className="text-xs"
+                            >
+                              {filledCount}/{totalCount}
+                            </Badge>
                           </div>
-                        ))}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() =>
+                              deleteEnvironment(selectedProject.id, selectedApp.id, env.id)
+                            }
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                        <div className="space-y-2">
+                          {secretFields.map((field) => (
+                            <div key={field.key}>
+                              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                                {field.label}
+                              </label>
+                              <SecretField
+                                value={env.secrets[field.key] || ""}
+                                label={field.label}
+                                editable
+                                initiallyHidden={field.sensitive}
+                                onChange={(v) =>
+                                  updateEnvironmentSecret(
+                                    selectedProject.id,
+                                    selectedApp.id,
+                                    env.id,
+                                    field.key,
+                                    v
+                                  )
+                                }
+                                placeholder={field.placeholder}
+                              />
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
                     );
                   })}
                 </div>
@@ -439,11 +439,10 @@ export const ProjectsPage: React.FC = () => {
                         key={type}
                         type="button"
                         onClick={() => setNewAppProvider(type)}
-                        className={`flex items-center gap-3 rounded-lg border p-3 transition-colors cursor-pointer ${
-                          newAppProvider === type
+                        className={`flex items-center gap-3 rounded-lg border p-3 transition-colors cursor-pointer ${newAppProvider === type
                             ? "border-primary bg-primary/5"
                             : "hover:bg-accent"
-                        }`}
+                          }`}
                       >
                         <Icon className={`h-5 w-5 ${info.color}`} />
                         <div className="text-left">

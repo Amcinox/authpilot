@@ -117,11 +117,10 @@ export const SettingsPage: React.FC = () => {
                 <button
                   key={value}
                   onClick={() => setTheme(value)}
-                  className={`flex flex-1 flex-col items-center gap-2 rounded-lg border p-4 transition-colors cursor-pointer ${
-                    theme === value
+                  className={`flex flex-1 flex-col items-center gap-2 rounded-lg border p-4 transition-colors cursor-pointer ${theme === value
                       ? "border-primary bg-primary/5 text-primary"
                       : "hover:bg-accent"
-                  }`}
+                    }`}
                 >
                   <Icon className="h-5 w-5" />
                   <span className="text-sm font-medium">{label}</span>

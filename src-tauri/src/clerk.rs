@@ -119,7 +119,12 @@ pub async fn clerk_verify_key(secret_key: String) -> Result<ClerkVerifyResult, S
 
     if resp.status().is_success() {
         let body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-        let total_count = body.get("total_count").and_then(|v| v.as_i64());
+        // Users endpoint returns a flat array — count from array length
+        let total_count = if body.is_array() {
+            body.as_array().map(|a| a.len() as i64)
+        } else {
+            body.get("total_count").and_then(|v| v.as_i64())
+        };
 
         // Determine instance type from key prefix
         let instance_type = if secret_key.starts_with("sk_live_") {
@@ -183,13 +188,7 @@ pub async fn clerk_list_organizations(
     }
 
     let body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-    let total_count = body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0);
-    let data: Vec<ClerkOrg> = body
-        .get("data")
-        .and_then(|d| serde_json::from_value(d.clone()).ok())
-        .unwrap_or_default();
-
-    Ok(ClerkListResult { data, total_count })
+    Ok(parse_clerk_list(body))
 }
 
 /// List users from Clerk
@@ -218,13 +217,7 @@ pub async fn clerk_list_users(
     }
 
     let body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-    let total_count = body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0);
-    let data: Vec<ClerkUser> = body
-        .get("data")
-        .and_then(|d| serde_json::from_value(d.clone()).ok())
-        .unwrap_or_default();
-
-    Ok(ClerkListResult { data, total_count })
+    Ok(parse_clerk_list(body))
 }
 
 /// Get a single user by ID from Clerk
@@ -279,13 +272,7 @@ pub async fn clerk_find_user_by_email(
     }
 
     let body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-    let total_count = body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0);
-    let data: Vec<ClerkUser> = body
-        .get("data")
-        .and_then(|d| serde_json::from_value(d.clone()).ok())
-        .unwrap_or_default();
-
-    Ok(ClerkListResult { data, total_count })
+    Ok(parse_clerk_list(body))
 }
 
 /// Get a user's organization memberships
@@ -315,13 +302,7 @@ pub async fn clerk_get_user_orgs(
     }
 
     let body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-    let total_count = body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0);
-    let data: Vec<ClerkUserOrgMembership> = body
-        .get("data")
-        .and_then(|d| serde_json::from_value(d.clone()).ok())
-        .unwrap_or_default();
-
-    Ok(ClerkListResult { data, total_count })
+    Ok(parse_clerk_list(body))
 }
 
 /// List active sessions (optionally for a specific user)
@@ -359,37 +340,40 @@ pub async fn clerk_list_sessions(
     }
 
     let body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-
-    // Clerk /sessions returns a flat array, not {data, total_count}
-    let data: Vec<ClerkSession> = if body.is_array() {
-        serde_json::from_value(body.clone()).unwrap_or_default()
-    } else {
-        body.get("data")
-            .and_then(|d| serde_json::from_value(d.clone()).ok())
-            .unwrap_or_default()
-    };
-    let total_count = if body.is_array() {
-        data.len() as i64
-    } else {
-        body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0)
-    };
-
-    Ok(ClerkListResult { data, total_count })
+    Ok(parse_clerk_list(body))
 }
 
-/// Create a session token (JWT) for a session
+/// Create a session token (JWT) for a session.
+/// Optionally scope the token to a specific organization.
+/// Optionally set a custom expiry (in seconds) — Clerk may clamp this.
 #[tauri::command]
 pub async fn clerk_create_session_token(
     secret_key: String,
     session_id: String,
+    organization_id: Option<String>,
+    expires_in_seconds: Option<u64>,
 ) -> Result<ClerkSessionToken, String> {
     let http = client(&secret_key)?;
 
-    let resp = http
-        .post(format!(
-            "{}/sessions/{}/tokens",
-            CLERK_API_BASE, session_id
-        ))
+    let mut req = http.post(format!(
+        "{}/sessions/{}/tokens",
+        CLERK_API_BASE, session_id
+    ));
+
+    // Build JSON body if we have any optional params
+    let has_body = organization_id.is_some() || expires_in_seconds.is_some();
+    if has_body {
+        let mut body = serde_json::Map::new();
+        if let Some(org_id) = &organization_id {
+            body.insert("organization_id".to_string(), Value::String(org_id.clone()));
+        }
+        if let Some(exp) = expires_in_seconds {
+            body.insert("expires_in_seconds".to_string(), Value::Number(serde_json::Number::from(exp)));
+        }
+        req = req.json(&Value::Object(body));
+    }
+
+    let resp = req
         .send()
         .await
         .map_err(|e| format!("Network error: {}", e))?;
@@ -445,4 +429,22 @@ fn extract_clerk_error(body: &Value) -> String {
         .and_then(|m| m.as_str())
         .unwrap_or("Unknown error")
         .to_string()
+}
+
+/// Parse a Clerk list response that may be either:
+/// - A flat JSON array: [{...}, ...]
+/// - An object with data/total_count: { data: [...], total_count: N }
+fn parse_clerk_list<T: serde::de::DeserializeOwned>(body: Value) -> ClerkListResult<T> {
+    if body.is_array() {
+        let data: Vec<T> = serde_json::from_value(body).unwrap_or_default();
+        let total_count = data.len() as i64;
+        ClerkListResult { data, total_count }
+    } else {
+        let total_count = body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let data: Vec<T> = body
+            .get("data")
+            .and_then(|d| serde_json::from_value(d.clone()).ok())
+            .unwrap_or_default();
+        ClerkListResult { data, total_count }
+    }
 }

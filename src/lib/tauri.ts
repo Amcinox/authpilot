@@ -184,13 +184,15 @@ export async function clerkListSessions(
 }
 
 /**
- * Create a session token (JWT) for a session
+ * Create a session token (JWT) for a session, optionally scoped to an org with custom expiry
  */
 export async function clerkCreateSessionToken(
   secretKey: string,
   sessionId: string,
+  organizationId?: string,
+  expiresInSeconds?: number,
 ): Promise<ClerkSessionToken> {
-  return invoke<ClerkSessionToken>("clerk_create_session_token", { secretKey, sessionId });
+  return invoke<ClerkSessionToken>("clerk_create_session_token", { secretKey, sessionId, organizationId, expiresInSeconds });
 }
 
 /**

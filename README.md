@@ -17,11 +17,11 @@ A sleek, cross-platform desktop app for managing auth provider secrets, environm
 
 ## Supported Providers
 
-| Provider       | Secrets                                       | Tools                               |
-| -------------- | --------------------------------------------- | ----------------------------------- |
-| **Clerk**      | Secret Key, Publishable Key, Webhook Secret   | Extend Token, Switch Org, Login     |
-| **AWS Cognito**| User Pool ID, Client ID, Client Secret, Region| Get Token, List Users               |
-| *More soon...*  | Extensible architecture                      | Add new providers easily            |
+| Provider        | Secrets                                        | Tools                           |
+| --------------- | ---------------------------------------------- | ------------------------------- |
+| **Clerk**       | Secret Key, Publishable Key, Webhook Secret    | Extend Token, Switch Org, Login |
+| **AWS Cognito** | User Pool ID, Client ID, Client Secret, Region | Get Token, List Users           |
+| _More soon..._  | Extensible architecture                        | Add new providers easily        |
 
 ## Screenshots
 
@@ -58,15 +58,15 @@ pnpm tauri build
 
 ## Tech Stack
 
-| Layer          | Technology                   |
-| -------------- | ---------------------------- |
-| Shell          | Tauri v2                     |
-| Frontend       | React 19 + TypeScript        |
-| Styling        | Tailwind CSS v4 + shadcn/ui  |
-| State          | Zustand                      |
-| Routing        | React Router v7              |
-| Secure Storage | OS Keychain via keyring crate|
-| CI/CD          | GitHub Actions               |
+| Layer          | Technology                    |
+| -------------- | ----------------------------- |
+| Shell          | Tauri v2                      |
+| Frontend       | React 19 + TypeScript         |
+| Styling        | Tailwind CSS v4 + shadcn/ui   |
+| State          | Zustand                       |
+| Routing        | React Router v7               |
+| Secure Storage | OS Keychain via keyring crate |
+| CI/CD          | GitHub Actions                |
 
 ## Project Structure
 
@@ -100,6 +100,7 @@ git push origin v0.1.0
 ```
 
 The GitHub Actions release workflow will automatically:
+
 1. Build for macOS (arm64 + x64) and Windows
 2. Code sign and notarize (macOS — requires Apple Developer secrets)
 3. Create a GitHub Release with all installers attached
