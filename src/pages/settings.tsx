@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useProjectStore, type Project } from "@/stores/project-store";
 import { useToastStore } from "@/stores/toast-store";
-import { Moon, Sun, Monitor, Trash2, Database, Info, Download, Upload } from "lucide-react";
+import { Moon, Sun, Monitor, Trash2, Database, Download, Upload } from "lucide-react";
 
 export const SettingsPage: React.FC = () => {
   const { theme, setTheme } = useSettingsStore();
@@ -118,8 +118,8 @@ export const SettingsPage: React.FC = () => {
                   key={value}
                   onClick={() => setTheme(value)}
                   className={`flex flex-1 flex-col items-center gap-2 rounded-lg border p-4 transition-colors cursor-pointer ${theme === value
-                      ? "border-primary bg-primary/5 text-primary"
-                      : "hover:bg-accent"
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "hover:bg-accent"
                     }`}
                 >
                   <Icon className="h-5 w-5" />
@@ -189,20 +189,24 @@ export const SettingsPage: React.FC = () => {
         {/* About */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Info className="h-5 w-5" />
-              About
-            </CardTitle>
+            <div className="flex items-center gap-3">
+              <img
+                src="/app-icon.png"
+                alt="AuthPilot"
+                className="h-12 w-12 rounded-xl"
+                draggable={false}
+              />
+              <div>
+                <CardTitle>AuthPilot</CardTitle>
+                <CardDescription>Multi-provider auth management</CardDescription>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Version</span>
                 <span className="font-mono">0.1.0</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Platform</span>
-                <span>Tauri v2</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Projects</span>
@@ -217,6 +221,30 @@ export const SettingsPage: React.FC = () => {
                 <span>{totalEnvs}</span>
               </div>
             </div>
+
+            <div className="border-t pt-3 space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Contact</p>
+              <div className="flex flex-col gap-1 text-sm">
+                <a
+                  href="mailto:contact@elbssir.com"
+                  className="text-primary hover:underline"
+                >
+                  contact@elbssir.com
+                </a>
+                <a
+                  href="https://www.elbssir.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  www.elbssir.com
+                </a>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-muted-foreground text-center pt-1">
+              © {new Date().getFullYear()} Elbssir. All rights reserved.
+            </p>
           </CardContent>
         </Card>
       </div>

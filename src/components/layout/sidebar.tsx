@@ -16,9 +16,12 @@ export const Sidebar: React.FC = () => {
     <aside className="flex h-full w-56 flex-col border-r bg-card">
       {/* Logo */}
       <div className="flex h-14 items-center gap-2.5 border-b px-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
-          AP
-        </div>
+        <img
+          src="/app-icon.png"
+          alt="AuthPilot"
+          className="h-8 w-8 rounded-lg"
+          draggable={false}
+        />
         <span className="font-semibold text-base tracking-tight">AuthPilot</span>
       </div>
 
