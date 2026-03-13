@@ -35,6 +35,14 @@
             "icons/128x128@2x.png",
             "icons/icon.icns",
             "icons/icon.ico"
-        ]
+        ],
+        "macOS": {
+            "entitlements": "Entitlements.plist",
+            "providerShortName": "UD29PDQT67",
+            "minimumSystemVersion": "12.0"
+        },
+        "category": "DeveloperTool",
+        "shortDescription": "Multi-provider authentication management tool",
+        "longDescription": "AuthPilot is a desktop application for managing authentication across multiple providers including Clerk and AWS Cognito. Validate tokens, manage users, organizations, and sessions from a single interface."
     }
 }
