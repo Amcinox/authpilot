@@ -54,11 +54,28 @@ export interface ClerkOrg {
   created_at: number | null;
 }
 
+export interface ClerkEmailVerification {
+  status: string | null;
+  strategy: string | null;
+}
+
+export interface ClerkLinkedIdentity {
+  id: string | null;
+  identity_type: string | null;
+}
+
+export interface ClerkEmailAddress {
+  id: string | null;
+  email_address: string;
+  verification: ClerkEmailVerification | null;
+  linked_to: ClerkLinkedIdentity[] | null;
+}
+
 export interface ClerkUser {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  email_addresses: { email_address: string }[];
+  email_addresses: ClerkEmailAddress[];
   created_at: number | null;
   last_sign_in_at: number | null;
 }
@@ -105,7 +122,8 @@ export interface ClerkUserDetail {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  email_addresses: { email_address: string }[];
+  email_addresses: ClerkEmailAddress[];
+  primary_email_address_id: string | null;
   phone_numbers: ClerkPhoneNumber[];
   username: string | null;
   image_url: string | null;
@@ -116,6 +134,9 @@ export interface ClerkUserDetail {
   last_active_at: number | null;
   banned: boolean | null;
   locked: boolean | null;
+  public_metadata: Record<string, unknown> | null;
+  private_metadata: Record<string, unknown> | null;
+  unsafe_metadata: Record<string, unknown> | null;
 }
 
 export interface ClerkSession {
@@ -136,6 +157,43 @@ export interface ClerkUserOrgMembership {
   role: string;
   organization: ClerkOrg;
   created_at: number | null;
+}
+
+export interface ClerkOrgMemberPublicUserData {
+  user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  identifier: string | null;
+  image_url: string | null;
+  has_image: boolean | null;
+}
+
+export interface ClerkOrgMember {
+  id: string;
+  role: string;
+  created_at: number | null;
+  updated_at: number | null;
+  public_user_data: ClerkOrgMemberPublicUserData | null;
+}
+
+export interface ClerkJwtResult {
+  valid: boolean;
+  header: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  signature_verified: boolean;
+  expired: boolean;
+  error: string | null;
+  expires_at: number | null;
+  issued_at: number | null;
+}
+
+export interface ClerkInvitation {
+  id: string;
+  email_address: string;
+  status: string;
+  created_at: number | null;
+  updated_at: number | null;
+  revoked: boolean | null;
 }
 
 // ─── Clerk Extended Commands ─────────────────────────────────────────────────
@@ -203,6 +261,194 @@ export async function clerkRevokeSession(
   sessionId: string,
 ): Promise<ClerkSession> {
   return invoke<ClerkSession>("clerk_revoke_session", { secretKey, sessionId });
+}
+
+export async function clerkBanUser(
+  secretKey: string,
+  userId: string,
+): Promise<ClerkUserDetail> {
+  return invoke<ClerkUserDetail>("clerk_ban_user", { secretKey, userId });
+}
+
+export async function clerkUnbanUser(
+  secretKey: string,
+  userId: string,
+): Promise<ClerkUserDetail> {
+  return invoke<ClerkUserDetail>("clerk_unban_user", { secretKey, userId });
+}
+
+export async function clerkUpdateUserMetadata(
+  secretKey: string,
+  userId: string,
+  publicMetadata?: Record<string, unknown>,
+  privateMetadata?: Record<string, unknown>,
+  unsafeMetadata?: Record<string, unknown>,
+): Promise<ClerkUserDetail> {
+  return invoke<ClerkUserDetail>("clerk_update_user_metadata", {
+    secretKey,
+    userId,
+    publicMetadata,
+    privateMetadata,
+    unsafeMetadata,
+  });
+}
+
+/**
+ * Get organization details
+ */
+export async function clerkGetOrganization(
+  secretKey: string,
+  organizationId: string,
+): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("clerk_get_organization", { secretKey, organizationId });
+}
+
+/**
+ * Create an organization invitation
+ */
+export async function clerkCreateOrgInvitation(
+  secretKey: string,
+  organizationId: string,
+  emailAddress: string,
+  role: string,
+  inviterUserId?: string,
+): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("clerk_create_org_invitation", {
+    secretKey,
+    organizationId,
+    emailAddress,
+    role,
+    inviterUserId,
+  });
+}
+
+/**
+ * List members of an organization
+ */
+export async function clerkListOrgMembers(
+  secretKey: string,
+  organizationId: string,
+  limit?: number,
+): Promise<ClerkListResult<ClerkOrgMember>> {
+  return invoke<ClerkListResult<ClerkOrgMember>>("clerk_list_org_members", { secretKey, organizationId, limit });
+}
+
+/**
+ * Verify and decode a JWT token. Optionally verify against JWKS.
+ */
+export async function clerkVerifyJwt(
+  token: string,
+  jwksUrl?: string,
+): Promise<ClerkJwtResult> {
+  return invoke<ClerkJwtResult>("clerk_verify_jwt", { token, jwksUrl });
+}
+
+/**
+ * List invitations
+ */
+export async function clerkListInvitations(
+  secretKey: string,
+  status?: string,
+  limit?: number,
+): Promise<ClerkListResult<ClerkInvitation>> {
+  return invoke<ClerkListResult<ClerkInvitation>>("clerk_list_invitations", { secretKey, status, limit });
+}
+
+/**
+ * Revoke an invitation
+ */
+export async function clerkRevokeInvitation(
+  secretKey: string,
+  invitationId: string,
+): Promise<ClerkInvitation> {
+  return invoke<ClerkInvitation>("clerk_revoke_invitation", { secretKey, invitationId });
+}
+
+/**
+ * Delete a user permanently
+ */
+export async function clerkDeleteUser(
+  secretKey: string,
+  userId: string,
+): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("clerk_delete_user", { secretKey, userId });
+}
+
+/**
+ * Get the SVIX dashboard URL for managing webhooks
+ */
+export async function clerkGetSvixUrl(
+  secretKey: string,
+): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("clerk_get_svix_url", { secretKey });
+}
+
+/**
+ * Fetch JWKS (JSON Web Key Set) from the frontend API
+ */
+export async function clerkGetJwks(
+  publishableKey: string,
+): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("clerk_get_jwks", { publishableKey });
+}
+
+// ─── Allowlist / Blocklist ────────────────────────────────────────────────────
+
+export interface ClerkAllowBlockIdentifier {
+  id: string | null;
+  identifier: string | null;
+  identifier_type: string | null;
+  created_at: number | null;
+  updated_at: number | null;
+}
+
+// ─── Instance Settings ───────────────────────────────────────────────────────
+
+export async function clerkGetInstance(
+  secretKey: string,
+): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("clerk_get_instance", { secretKey });
+}
+
+export async function clerkListAllowlist(
+  secretKey: string,
+): Promise<ClerkAllowBlockIdentifier[]> {
+  return invoke<ClerkAllowBlockIdentifier[]>("clerk_list_allowlist", { secretKey });
+}
+
+export async function clerkAddAllowlist(
+  secretKey: string,
+  identifier: string,
+  notify?: boolean,
+): Promise<ClerkAllowBlockIdentifier> {
+  return invoke<ClerkAllowBlockIdentifier>("clerk_add_allowlist", { secretKey, identifier, notify });
+}
+
+export async function clerkDeleteAllowlist(
+  secretKey: string,
+  identifierId: string,
+): Promise<unknown> {
+  return invoke("clerk_delete_allowlist", { secretKey, identifierId });
+}
+
+export async function clerkListBlocklist(
+  secretKey: string,
+): Promise<ClerkAllowBlockIdentifier[]> {
+  return invoke<ClerkAllowBlockIdentifier[]>("clerk_list_blocklist", { secretKey });
+}
+
+export async function clerkAddBlocklist(
+  secretKey: string,
+  identifier: string,
+): Promise<ClerkAllowBlockIdentifier> {
+  return invoke<ClerkAllowBlockIdentifier>("clerk_add_blocklist", { secretKey, identifier });
+}
+
+export async function clerkDeleteBlocklist(
+  secretKey: string,
+  identifierId: string,
+): Promise<unknown> {
+  return invoke("clerk_delete_blocklist", { secretKey, identifierId });
 }
 
 // ─── Cognito Provider Commands ───────────────────────────────────────────────

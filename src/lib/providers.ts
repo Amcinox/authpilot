@@ -49,6 +49,15 @@ const clerkTools: ProviderTool[] = [
     { id: "clerk-list-sessions", label: "List Sessions", description: "List active sessions (filter by user)", icon: "Activity" },
     { id: "clerk-create-token", label: "Create Session Token", description: "Generate a JWT for a session", icon: "KeyRound" },
     { id: "clerk-revoke-session", label: "Revoke Session", description: "Revoke an active session", icon: "Ban" },
+    { id: "clerk-ban-user", label: "Ban / Unban User", description: "Toggle user ban status", icon: "UserX" },
+    { id: "clerk-update-metadata", label: "Update Metadata", description: "Edit user public/private metadata", icon: "FileEdit" },
+    { id: "clerk-list-org-members", label: "Org Members", description: "List members of an organization", icon: "Users" },
+    { id: "clerk-verify-jwt", label: "Verify JWT", description: "Decode and verify a Clerk JWT token", icon: "KeyRound" },
+    { id: "clerk-list-invitations", label: "List Invitations", description: "View pending instance invitations", icon: "Mail" },
+    { id: "clerk-webhooks", label: "Webhooks", description: "Open SVIX webhook dashboard", icon: "Wrench" },
+    { id: "clerk-jwks", label: "JWKS Viewer", description: "View instance public keys (JWKS)", icon: "KeyRound" },
+    { id: "clerk-allowblock", label: "Allow / Block Lists", description: "Manage email & domain allow/block lists", icon: "ListFilter" },
+    { id: "clerk-instance", label: "Instance Settings", description: "View instance configuration & settings", icon: "ShieldCheck" },
 ];
 
 const cognitoTools: ProviderTool[] = [
