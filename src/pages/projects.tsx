@@ -33,6 +33,7 @@ import { formatDate } from "@/lib/utils";
 const providerIcons: Record<ProviderType, React.FC<{ className?: string }>> = {
   clerk: Shield,
   cognito: Cloud,
+  auth0: Shield,
 };
 
 // ─── Projects Page ───────────────────────────────────────────────────────────
@@ -440,8 +441,8 @@ export const ProjectsPage: React.FC = () => {
                         type="button"
                         onClick={() => setNewAppProvider(type)}
                         className={`flex items-center gap-3 rounded-lg border p-3 transition-colors cursor-pointer ${newAppProvider === type
-                            ? "border-primary bg-primary/5"
-                            : "hover:bg-accent"
+                          ? "border-primary bg-primary/5"
+                          : "hover:bg-accent"
                           }`}
                       >
                         <Icon className={`h-5 w-5 ${info.color}`} />

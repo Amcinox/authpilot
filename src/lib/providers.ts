@@ -1,6 +1,6 @@
 // ─── Provider Type Definitions ───────────────────────────────────────────────
 
-export const PROVIDER_TYPES = ["clerk", "cognito"] as const;
+export const PROVIDER_TYPES = ["clerk", "cognito", "auth0"] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 // ─── Per-Provider Secret Field Schemas ───────────────────────────────────────
@@ -20,14 +20,23 @@ const clerkSecretFields: SecretFieldSchema[] = [
 
 const cognitoSecretFields: SecretFieldSchema[] = [
     { key: "userPoolId", label: "User Pool ID", placeholder: "us-east-1_xxxxxx", sensitive: false },
-    { key: "clientId", label: "App Client ID", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxx", sensitive: false },
-    { key: "clientSecret", label: "App Client Secret", placeholder: "xxxxxxxxxx", sensitive: true },
     { key: "region", label: "AWS Region", placeholder: "us-east-1", sensitive: false },
+    { key: "awsAccessKeyId", label: "AWS Access Key ID", placeholder: "AKIA...", sensitive: false },
+    { key: "awsSecretAccessKey", label: "AWS Secret Access Key", placeholder: "wJalr...", sensitive: true },
+    { key: "clientId", label: "App Client ID (optional)", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxx", sensitive: false },
+    { key: "clientSecret", label: "App Client Secret (optional)", placeholder: "xxxxxxxxxx", sensitive: true },
+];
+
+const auth0SecretFields: SecretFieldSchema[] = [
+    { key: "domain", label: "Domain", placeholder: "your-tenant.auth0.com", sensitive: false },
+    { key: "clientId", label: "Client ID", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", sensitive: false },
+    { key: "clientSecret", label: "Client Secret", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", sensitive: true },
 ];
 
 export const PROVIDER_SECRET_FIELDS: Record<ProviderType, SecretFieldSchema[]> = {
     clerk: clerkSecretFields,
     cognito: cognitoSecretFields,
+    auth0: auth0SecretFields,
 };
 
 // ─── Provider Tool Definitions ───────────────────────────────────────────────
@@ -62,12 +71,44 @@ const clerkTools: ProviderTool[] = [
 
 const cognitoTools: ProviderTool[] = [
     { id: "cognito-validate", label: "Validate Config", description: "Verify your User Pool configuration", icon: "ShieldCheck" },
-    { id: "cognito-get-token", label: "Test Connection", description: "Test client credentials", icon: "KeyRound" },
+    { id: "cognito-pool-stats", label: "Pool Statistics", description: "View User Pool info and statistics", icon: "BarChart3" },
+    { id: "cognito-list-users", label: "List Users", description: "Browse all users in the pool", icon: "Users" },
+    { id: "cognito-get-user", label: "Get User", description: "Get detailed user info by username", icon: "User" },
+    { id: "cognito-search-users", label: "Search Users", description: "Find users by attribute filter", icon: "Search" },
+    { id: "cognito-disable-user", label: "Disable / Enable", description: "Toggle user access", icon: "Ban" },
+    { id: "cognito-reset-password", label: "Reset Password", description: "Force user password reset", icon: "RotateCcw" },
+    { id: "cognito-confirm-user", label: "Confirm User", description: "Manually confirm a pending user", icon: "UserCheck" },
+    { id: "cognito-list-groups", label: "List Groups", description: "View all groups in the pool", icon: "Layers" },
+    { id: "cognito-user-groups", label: "User Groups", description: "View groups for a user", icon: "Users" },
+    { id: "cognito-list-clients", label: "List Clients", description: "View app clients configured", icon: "Wrench" },
+    { id: "cognito-decode-token", label: "Decode Token", description: "Decode and verify a Cognito JWT", icon: "KeyRound" },
+    { id: "cognito-jwks", label: "JWKS Viewer", description: "View pool public keys (JWKS)", icon: "KeyRound" },
+    { id: "cognito-initiate-auth", label: "Initiate Auth", description: "Test USER_PASSWORD_AUTH flow", icon: "KeyRound" },
+    { id: "cognito-global-signout", label: "Global Sign Out", description: "Sign out user from all devices", icon: "LogOut" },
+];
+
+const auth0Tools: ProviderTool[] = [
+    { id: "auth0-verify", label: "Verify Connection", description: "Validate credentials and view tenant info", icon: "ShieldCheck" },
+    { id: "auth0-tenant-settings", label: "Tenant Settings", description: "View tenant configuration", icon: "ShieldCheck" },
+    { id: "auth0-list-users", label: "List Users", description: "Browse all users in the tenant", icon: "Users" },
+    { id: "auth0-search-users", label: "Search Users", description: "Search users with Lucene query", icon: "Search" },
+    { id: "auth0-get-user", label: "Get User", description: "Get user details by ID", icon: "User" },
+    { id: "auth0-list-connections", label: "List Connections", description: "View identity provider connections", icon: "Activity" },
+    { id: "auth0-list-roles", label: "List Roles", description: "View all defined roles", icon: "Layers" },
+    { id: "auth0-list-orgs", label: "List Organizations", description: "Browse Auth0 organizations", icon: "Building2" },
+    { id: "auth0-list-logs", label: "View Logs", description: "Browse recent auth events", icon: "Activity" },
+    { id: "auth0-list-clients", label: "List Applications", description: "View configured app clients", icon: "Wrench" },
+    { id: "auth0-verify-jwt", label: "Verify JWT", description: "Decode and verify an Auth0 JWT", icon: "KeyRound" },
+    { id: "auth0-jwks", label: "JWKS Viewer", description: "View tenant public keys (JWKS)", icon: "KeyRound" },
+    { id: "auth0-get-token", label: "Generate Token", description: "Get token via client_credentials", icon: "KeyRound" },
+    { id: "auth0-list-actions", label: "List Actions", description: "View configured Auth0 Actions", icon: "Activity" },
+    { id: "auth0-list-grants", label: "List Grants", description: "View active grants / refresh tokens", icon: "KeyRound" },
 ];
 
 export const PROVIDER_TOOLS: Record<ProviderType, ProviderTool[]> = {
     clerk: clerkTools,
     cognito: cognitoTools,
+    auth0: auth0Tools,
 };
 
 // ─── Provider Display Info ───────────────────────────────────────────────────
@@ -94,6 +135,13 @@ export const PROVIDER_INFO: Record<ProviderType, ProviderInfo> = {
         description: "AWS identity & access management",
         color: "text-orange-500",
         icon: "Cloud",
+    },
+    auth0: {
+        type: "auth0",
+        name: "Auth0",
+        description: "Identity platform by Okta",
+        color: "text-red-500",
+        icon: "Shield",
     },
 };
 

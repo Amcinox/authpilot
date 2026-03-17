@@ -180,13 +180,14 @@ pub async fn clerk_verify_key(secret_key: String) -> Result<ClerkVerifyResult, S
         .map_err(|e| format!("Network error: {}", e))?;
 
     if resp.status().is_success() {
-        let body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-        // Users endpoint returns a flat array — count from array length
-        let total_count = if body.is_array() {
-            body.as_array().map(|a| a.len() as i64)
-        } else {
-            body.get("total_count").and_then(|v| v.as_i64())
-        };
+        // Get total count from the x-total-count response header
+        let header_count = resp.headers()
+            .get("x-total-count")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<i64>().ok());
+
+        let _body: Value = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
+        let total_count = header_count;
 
         // Determine instance type from key prefix
         let instance_type = if secret_key.starts_with("sk_live_") {
@@ -412,7 +413,6 @@ pub async fn clerk_list_sessions(
 pub async fn clerk_create_session_token(
     secret_key: String,
     session_id: String,
-    organization_id: Option<String>,
     expires_in_seconds: Option<u64>,
 ) -> Result<ClerkSessionToken, String> {
     let http = client(&secret_key)?;
@@ -422,18 +422,12 @@ pub async fn clerk_create_session_token(
         CLERK_API_BASE, session_id
     ));
 
-    // Build JSON body if we have any optional params
-    let has_body = organization_id.is_some() || expires_in_seconds.is_some();
-    if has_body {
-        let mut body = serde_json::Map::new();
-        if let Some(org_id) = &organization_id {
-            body.insert("organization_id".to_string(), Value::String(org_id.clone()));
-        }
-        if let Some(exp) = expires_in_seconds {
-            body.insert("expires_in_seconds".to_string(), Value::Number(serde_json::Number::from(exp)));
-        }
-        req = req.json(&Value::Object(body));
+    // Build JSON body — always send JSON content type
+    let mut body = serde_json::Map::new();
+    if let Some(exp) = expires_in_seconds {
+        body.insert("expires_in_seconds".to_string(), Value::Number(serde_json::Number::from(exp)));
     }
+    req = req.json(&Value::Object(body));
 
     let resp = req
         .send()
@@ -792,10 +786,24 @@ pub async fn clerk_get_jwks(
     // Derive JWKS URL from publishable key
     let parts: Vec<&str> = publishable_key.split('_').collect();
     let encoded = parts.last().ok_or("Invalid publishable key format")?;
+    // Try URL-safe no-pad first, then standard, then with padding added
     let decoded_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD_NO_PAD,
+        encoded,
+    ).or_else(|_| base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
         encoded,
-    ).map_err(|e| format!("Failed to decode publishable key: {}", e))?;
+    )).or_else(|_| {
+        // Manually add padding if needed
+        let mut padded = encoded.to_string();
+        while padded.len() % 4 != 0 {
+            padded.push('=');
+        }
+        base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &padded,
+        )
+    }).map_err(|e| format!("Failed to decode publishable key: {}", e))?;
     let frontend_api = String::from_utf8(decoded_bytes)
         .map_err(|e| format!("Invalid UTF-8 in publishable key: {}", e))?;
     // Remove trailing '$' if present

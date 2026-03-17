@@ -41,7 +41,47 @@ import {
     clerkDeleteBlocklist,
     clerkGetInstance,
     cognitoValidate,
-    cognitoGetToken,
+    cognitoDescribePool,
+    cognitoListUsers,
+    cognitoGetUser,
+    cognitoDisableUser,
+    cognitoEnableUser,
+    cognitoResetPassword,
+    cognitoConfirmUser,
+    cognitoListGroups,
+    cognitoListUserGroups,
+    cognitoAddUserToGroup,
+    cognitoRemoveUserFromGroup,
+    cognitoListPoolClients,
+    cognitoDecodeToken,
+    cognitoGetJwks,
+    cognitoInitiateAuth,
+    cognitoGlobalSignout,
+    auth0VerifyConnection,
+    auth0ListUsers,
+    auth0GetUser,
+    auth0SearchUsers,
+    auth0ListConnections,
+    auth0BlockUser,
+    auth0UnblockUser,
+    auth0DeleteUser,
+    auth0ListRoles,
+    auth0GetUserRoles,
+    auth0AssignRoles,
+    auth0RemoveRoles,
+    auth0ListOrganizations,
+    auth0ListOrgMembers,
+    auth0ListLogs,
+    auth0GetLog,
+    auth0ListClients,
+    auth0GetClient,
+    auth0VerifyJwt,
+    auth0GetJwks,
+    auth0GetToken,
+    auth0ListActions,
+    auth0ListGrants,
+    auth0RevokeGrant,
+    auth0TenantSettings,
     type ClerkVerifyResult,
     type ClerkListResult,
     type ClerkOrg,
@@ -55,6 +95,29 @@ import {
     type ClerkInvitation,
     type ClerkAllowBlockIdentifier,
     type CognitoValidateResult,
+    type CognitoUserDetail,
+    type CognitoPoolStats,
+    type CognitoAuthResult,
+    type CognitoJwtResult,
+    type CognitoListUsersResult,
+    type CognitoListGroupsResult,
+    type CognitoListClientsResult,
+    type Auth0VerifyResult,
+    type Auth0User,
+    type Auth0UserDetail,
+    type Auth0Connection,
+    type Auth0Role,
+    type Auth0Organization,
+    type Auth0OrgMember,
+    type Auth0LogEvent,
+    type Auth0Client,
+    type Auth0ClientDetail,
+    type Auth0JwtResult,
+    type Auth0TokenResult,
+    type Auth0Grant,
+    type Auth0Action,
+    type Auth0ListResult,
+    type Auth0TenantSettings,
 } from "@/lib/tauri";
 import { useToastStore } from "@/stores/toast-store";
 import type { Environment } from "@/stores/project-store";
@@ -88,6 +151,11 @@ import {
     UserPlus,
     ExternalLink,
     ListFilter,
+    RotateCcw,
+    UserCheck,
+    Layers,
+    LogOut,
+    BarChart3,
 } from "lucide-react";
 
 // Map icon string names to actual components
@@ -105,6 +173,11 @@ const iconMap: Record<string, React.FC<{ className?: string }>> = {
     Mail,
     ListFilter,
     Wrench,
+    RotateCcw,
+    UserCheck,
+    Layers,
+    LogOut,
+    BarChart3,
 };
 
 // ─── Result Types ────────────────────────────────────────────────────────────
@@ -134,6 +207,34 @@ type ToolResult =
     | { type: "clerk-allowblock"; data: { allowlist: ClerkAllowBlockIdentifier[]; blocklist: ClerkAllowBlockIdentifier[] } }
     | { type: "clerk-instance"; data: Record<string, unknown> }
     | { type: "cognito-validate"; data: CognitoValidateResult }
+    | { type: "cognito-pool-stats"; data: CognitoPoolStats }
+    | { type: "cognito-users"; data: CognitoListUsersResult }
+    | { type: "cognito-user-detail"; data: CognitoUserDetail }
+    | { type: "cognito-groups"; data: CognitoListGroupsResult }
+    | { type: "cognito-user-groups"; data: { username: string; groups: CognitoListGroupsResult } }
+    | { type: "cognito-clients"; data: CognitoListClientsResult }
+    | { type: "cognito-jwt"; data: CognitoJwtResult }
+    | { type: "cognito-jwks"; data: Record<string, unknown> }
+    | { type: "cognito-auth-result"; data: CognitoAuthResult }
+    | { type: "auth0-verify"; data: Auth0VerifyResult }
+    | { type: "auth0-tenant"; data: Auth0TenantSettings }
+    | { type: "auth0-users"; data: Auth0ListResult<Auth0User> }
+    | { type: "auth0-user-detail"; data: Auth0UserDetail }
+    | { type: "auth0-connections"; data: Auth0Connection[] }
+    | { type: "auth0-roles"; data: Auth0Role[] }
+    | { type: "auth0-user-roles"; data: { userId: string; roles: Auth0Role[] } }
+    | { type: "auth0-orgs"; data: Auth0ListResult<Auth0Organization> }
+    | { type: "auth0-org-members"; data: { orgId: string; members: Auth0OrgMember[] } }
+    | { type: "auth0-logs"; data: Auth0ListResult<Auth0LogEvent> }
+    | { type: "auth0-log-detail"; data: Record<string, unknown> }
+    | { type: "auth0-clients"; data: Auth0Client[] }
+    | { type: "auth0-client-detail"; data: Auth0ClientDetail }
+    | { type: "auth0-jwt"; data: Auth0JwtResult }
+    | { type: "auth0-jwks"; data: Record<string, unknown> }
+    | { type: "auth0-token"; data: Auth0TokenResult }
+    | { type: "auth0-actions"; data: Auth0Action[] }
+    | { type: "auth0-grants"; data: Auth0Grant[] }
+    | { type: "auth0-user-deleted"; data: { userId: string } }
     | { type: "error"; message: string };
 
 // ─── Input Prompt config ─────────────────────────────────────────────────────
@@ -152,12 +253,10 @@ interface NavEntry {
     title: string;
 }
 
-// ─── Org-scoped token picker config ──────────────────────────────────────────
+// ─── Token picker config ─────────────────────────────────────────────────────
 
-interface OrgTokenPickerState {
+interface TokenPickerState {
     sessionId: string;
-    userId: string;
-    orgs: ClerkOrg[];
     loading: boolean;
 }
 
@@ -231,8 +330,14 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
     const [inputPrompt, setInputPrompt] = useState<InputPromptConfig | null>(null);
     const [inputValue, setInputValue] = useState("");
 
-    // Org-scoped token picker state
-    const [orgTokenPicker, setOrgTokenPicker] = useState<OrgTokenPickerState | null>(null);
+    // Token picker state
+    const [tokenPicker, setTokenPicker] = useState<TokenPickerState | null>(null);
+
+    // Cognito auth form state (initiate auth — needs username + password)
+    const [authForm, setAuthForm] = useState<{ username: string; password: string } | null>(null);
+
+    // Auth0 token form state (get token — needs audience + optional scope)
+    const [auth0TokenForm, setAuth0TokenForm] = useState<{ audience: string; scope: string } | null>(null);
 
     const selectedEnv = environments.find((e) => e.id === selectedEnvId);
 
@@ -292,6 +397,19 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
             "clerk-update-metadata": { toolId: "clerk-update-metadata", label: "User ID", placeholder: "user_xxxxxxxxxxxx", field: "userId" },
             "clerk-list-org-members": { toolId: "clerk-list-org-members", label: "Organization ID", placeholder: "org_xxxxxxxxxxxx", field: "organizationId" },
             "clerk-verify-jwt": { toolId: "clerk-verify-jwt", label: "JWT Token", placeholder: "eyJhbGciOi...", field: "token" },
+            // Cognito tools
+            "cognito-get-user": { toolId: "cognito-get-user", label: "Username", placeholder: "Enter Cognito username", field: "username" },
+            "cognito-disable-user": { toolId: "cognito-disable-user", label: "Username", placeholder: "Enter Cognito username", field: "username" },
+            "cognito-reset-password": { toolId: "cognito-reset-password", label: "Username", placeholder: "Enter Cognito username", field: "username" },
+            "cognito-confirm-user": { toolId: "cognito-confirm-user", label: "Username", placeholder: "Enter Cognito username", field: "username" },
+            "cognito-global-signout": { toolId: "cognito-global-signout", label: "Username", placeholder: "Enter Cognito username", field: "username" },
+            "cognito-user-groups": { toolId: "cognito-user-groups", label: "Username", placeholder: "Enter Cognito username", field: "username" },
+            "cognito-search-users": { toolId: "cognito-search-users", label: "Filter", placeholder: 'e.g. email = "user@example.com"', field: "filter" },
+            "cognito-decode-token": { toolId: "cognito-decode-token", label: "JWT Token", placeholder: "Paste Cognito JWT here…", field: "token" },
+            // Auth0 tools
+            "auth0-get-user": { toolId: "auth0-get-user", label: "User ID", placeholder: "auth0|xxxxxxxxxxxx", field: "userId" },
+            "auth0-search-users": { toolId: "auth0-search-users", label: "Search Query", placeholder: 'email:"user@example.com"', field: "query" },
+            "auth0-verify-jwt": { toolId: "auth0-verify-jwt", label: "JWT Token", placeholder: "eyJhbGciOi...", field: "token" },
         };
 
         if (inputTools[toolId]) {
@@ -309,6 +427,50 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
         const { toolId } = inputPrompt;
         setInputPrompt(null);
         await executeTool(toolId, resultTitle, inputValue);
+    };
+
+    const submitAuthForm = async () => {
+        if (!authForm || !selectedEnv) return;
+        const { username, password } = authForm;
+        setAuthForm(null);
+        setLoading("cognito-initiate-auth");
+        setResultTitle("Initiate Auth");
+        setNavStack([]);
+        try {
+            const data = await cognitoInitiateAuth(
+                getSecret("clientId"),
+                getSecret("clientSecret") || null,
+                getSecret("region"),
+                username,
+                password,
+            );
+            setResult({ type: "cognito-auth-result", data });
+        } catch (err) {
+            setResult({ type: "error", message: err instanceof Error ? err.message : String(err) });
+        } finally {
+            setLoading(null);
+        }
+    };
+
+    const submitAuth0TokenForm = async () => {
+        if (!auth0TokenForm || !selectedEnv) return;
+        const { audience, scope } = auth0TokenForm;
+        if (!audience) { addToast({ type: "error", message: "Audience is required" }); return; }
+        setAuth0TokenForm(null);
+        setLoading("auth0-get-token");
+        setResultTitle("Generate Token");
+        setNavStack([]);
+        try {
+            const data = await auth0GetToken(
+                getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"),
+                audience, scope || undefined,
+            );
+            setResult({ type: "auth0-token", data });
+        } catch (err) {
+            setResult({ type: "error", message: err instanceof Error ? err.message : String(err) });
+        } finally {
+            setLoading(null);
+        }
     };
 
     const executeTool = async (toolId: string, toolLabel: string, inputVal?: string) => {
@@ -477,17 +639,220 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                     setResult({ type: "cognito-validate", data });
                     break;
                 }
-                case "cognito-get-token": {
-                    if (!checkRequiredSecrets(["clientId", "clientSecret", "region"])) break;
-                    const data = await cognitoGetToken(
-                        getSecret("clientId"),
-                        getSecret("clientSecret"),
-                        getSecret("region")
+                case "cognito-pool-stats": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    const data = await cognitoDescribePool(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region")
                     );
-                    addToast({
-                        type: "success",
-                        message: `Token received (expires in ${data.expires_in}s)`,
-                    });
+                    setResult({ type: "cognito-pool-stats", data });
+                    break;
+                }
+                case "cognito-list-users": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    const data = await cognitoListUsers(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region")
+                    );
+                    setResult({ type: "cognito-users", data });
+                    break;
+                }
+                case "cognito-get-user":
+                case "cognito-disable-user": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "Username is required" }); break; }
+                    const userData = await cognitoGetUser(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region"), inputVal
+                    );
+                    setResult({ type: "cognito-user-detail", data: userData });
+                    break;
+                }
+                case "cognito-reset-password": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "Username is required" }); break; }
+                    const rpData = await cognitoResetPassword(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region"), inputVal
+                    );
+                    addToast({ type: "success", message: `Password reset triggered for ${inputVal}` });
+                    setResult({ type: "cognito-user-detail", data: rpData });
+                    break;
+                }
+                case "cognito-confirm-user": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "Username is required" }); break; }
+                    const cuData = await cognitoConfirmUser(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region"), inputVal
+                    );
+                    addToast({ type: "success", message: `User ${inputVal} confirmed` });
+                    setResult({ type: "cognito-user-detail", data: cuData });
+                    break;
+                }
+                case "cognito-global-signout": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "Username is required" }); break; }
+                    const soData = await cognitoGlobalSignout(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region"), inputVal
+                    );
+                    addToast({ type: "success", message: `All sessions invalidated for ${inputVal}` });
+                    setResult({ type: "cognito-user-detail", data: soData });
+                    break;
+                }
+                case "cognito-user-groups": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "Username is required" }); break; }
+                    const ugData = await cognitoListUserGroups(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region"), inputVal
+                    );
+                    setResult({ type: "cognito-user-groups", data: { username: inputVal, groups: ugData } });
+                    break;
+                }
+                case "cognito-search-users": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    const searchData = await cognitoListUsers(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region"),
+                        null, inputVal || null
+                    );
+                    setResult({ type: "cognito-users", data: searchData });
+                    break;
+                }
+                case "cognito-list-groups": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    const data = await cognitoListGroups(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region")
+                    );
+                    setResult({ type: "cognito-groups", data });
+                    break;
+                }
+                case "cognito-list-clients": {
+                    if (!checkRequiredSecrets(["awsAccessKeyId", "awsSecretAccessKey", "userPoolId", "region"])) break;
+                    const data = await cognitoListPoolClients(
+                        getSecret("awsAccessKeyId"), getSecret("awsSecretAccessKey"),
+                        getSecret("userPoolId"), getSecret("region")
+                    );
+                    setResult({ type: "cognito-clients", data });
+                    break;
+                }
+                case "cognito-decode-token": {
+                    if (!checkRequiredSecrets(["userPoolId", "region"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "JWT token is required" }); break; }
+                    const jwtData = await cognitoDecodeToken(
+                        inputVal, getSecret("userPoolId"), getSecret("region")
+                    );
+                    setResult({ type: "cognito-jwt", data: jwtData });
+                    break;
+                }
+                case "cognito-jwks": {
+                    if (!checkRequiredSecrets(["userPoolId", "region"])) break;
+                    const data = await cognitoGetJwks(
+                        getSecret("userPoolId"), getSecret("region")
+                    );
+                    setResult({ type: "cognito-jwks", data: data as Record<string, unknown> });
+                    break;
+                }
+                case "cognito-initiate-auth": {
+                    if (!checkRequiredSecrets(["clientId", "region"])) break;
+                    setAuthForm({ username: "", password: "" });
+                    break;
+                }
+
+                // ── Auth0 Tools ─────────────────────────────────────────────
+                case "auth0-verify": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0VerifyConnection(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-verify", data });
+                    break;
+                }
+                case "auth0-tenant-settings": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0TenantSettings(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-tenant", data });
+                    break;
+                }
+                case "auth0-list-users": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListUsers(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-users", data });
+                    break;
+                }
+                case "auth0-search-users": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "Search query is required" }); break; }
+                    const data = await auth0SearchUsers(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"), inputVal);
+                    setResult({ type: "auth0-users", data });
+                    break;
+                }
+                case "auth0-get-user": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "User ID is required" }); break; }
+                    const data = await auth0GetUser(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"), inputVal);
+                    setResult({ type: "auth0-user-detail", data });
+                    break;
+                }
+                case "auth0-list-connections": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListConnections(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-connections", data });
+                    break;
+                }
+                case "auth0-list-roles": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListRoles(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-roles", data });
+                    break;
+                }
+                case "auth0-list-orgs": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListOrganizations(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-orgs", data });
+                    break;
+                }
+                case "auth0-list-logs": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListLogs(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-logs", data });
+                    break;
+                }
+                case "auth0-list-clients": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListClients(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-clients", data });
+                    break;
+                }
+                case "auth0-verify-jwt": {
+                    if (!checkRequiredSecrets(["domain"])) break;
+                    if (!inputVal) { addToast({ type: "error", message: "JWT token is required" }); break; }
+                    const data = await auth0VerifyJwt(getSecret("domain"), inputVal);
+                    setResult({ type: "auth0-jwt", data });
+                    break;
+                }
+                case "auth0-jwks": {
+                    if (!checkRequiredSecrets(["domain"])) break;
+                    const data = await auth0GetJwks(getSecret("domain"));
+                    setResult({ type: "auth0-jwks", data: data as Record<string, unknown> });
+                    break;
+                }
+                case "auth0-get-token": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    setAuth0TokenForm({ audience: "", scope: "" });
+                    break;
+                }
+                case "auth0-list-actions": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListActions(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-actions", data });
+                    break;
+                }
+                case "auth0-list-grants": {
+                    if (!checkRequiredSecrets(["domain", "clientId", "clientSecret"])) break;
+                    const data = await auth0ListGrants(getSecret("domain"), getSecret("clientId"), getSecret("clientSecret"));
+                    setResult({ type: "auth0-grants", data });
                     break;
                 }
                 default:
@@ -508,11 +873,184 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
     // ── Result action handler — drills into a follow-up command ──────
     const handleResultAction = async (action: string, id: string) => {
         if (!selectedEnv) return;
-        if (!checkRequiredSecrets(["secretKey"])) return;
-        const sk = getSecret("secretKey");
 
         setLoading(action);
         try {
+            // ── Cognito actions (don't need secretKey) ──────────────────
+            if (action.startsWith("cognito-")) {
+                const ak = getSecret("awsAccessKeyId");
+                const sk2 = getSecret("awsSecretAccessKey");
+                const pool = getSecret("userPoolId");
+                const reg = getSecret("region");
+
+                switch (action) {
+                    case "cognito-view-user": {
+                        pushNav();
+                        const data = await cognitoGetUser(ak, sk2, pool, reg, id);
+                        setResult({ type: "cognito-user-detail", data });
+                        setResultTitle("User Detail");
+                        break;
+                    }
+                    case "cognito-disable": {
+                        const data = await cognitoDisableUser(ak, sk2, pool, reg, id);
+                        addToast({ type: "success", message: `User ${id} disabled` });
+                        setResult({ type: "cognito-user-detail", data });
+                        break;
+                    }
+                    case "cognito-enable": {
+                        const data = await cognitoEnableUser(ak, sk2, pool, reg, id);
+                        addToast({ type: "success", message: `User ${id} enabled` });
+                        setResult({ type: "cognito-user-detail", data });
+                        break;
+                    }
+                    case "cognito-reset-pwd": {
+                        const data = await cognitoResetPassword(ak, sk2, pool, reg, id);
+                        addToast({ type: "success", message: `Password reset triggered for ${id}` });
+                        setResult({ type: "cognito-user-detail", data });
+                        break;
+                    }
+                    case "cognito-confirm": {
+                        const data = await cognitoConfirmUser(ak, sk2, pool, reg, id);
+                        addToast({ type: "success", message: `User ${id} confirmed` });
+                        setResult({ type: "cognito-user-detail", data });
+                        break;
+                    }
+                    case "cognito-signout": {
+                        const data = await cognitoGlobalSignout(ak, sk2, pool, reg, id);
+                        addToast({ type: "success", message: `All sessions invalidated for ${id}` });
+                        setResult({ type: "cognito-user-detail", data });
+                        break;
+                    }
+                    case "cognito-view-groups": {
+                        pushNav();
+                        const data = await cognitoListUserGroups(ak, sk2, pool, reg, id);
+                        setResult({ type: "cognito-user-groups", data: { username: id, groups: data } });
+                        setResultTitle("User Groups");
+                        break;
+                    }
+                    case "cognito-add-group": {
+                        // id format: "username::groupName"
+                        const [username, groupName] = id.split("::");
+                        await cognitoAddUserToGroup(ak, sk2, pool, reg, username, groupName);
+                        addToast({ type: "success", message: `Added to group ${groupName}` });
+                        const data = await cognitoListUserGroups(ak, sk2, pool, reg, username);
+                        setResult({ type: "cognito-user-groups", data: { username, groups: data } });
+                        break;
+                    }
+                    case "cognito-remove-group": {
+                        const [username, groupName] = id.split("::");
+                        await cognitoRemoveUserFromGroup(ak, sk2, pool, reg, username, groupName);
+                        addToast({ type: "success", message: `Removed from group ${groupName}` });
+                        const data = await cognitoListUserGroups(ak, sk2, pool, reg, username);
+                        setResult({ type: "cognito-user-groups", data: { username, groups: data } });
+                        break;
+                    }
+                }
+                setLoading(null);
+                return;
+            }
+
+            // ── Auth0 actions ───────────────────────────────────────────
+            if (action.startsWith("auth0-")) {
+                const d = getSecret("domain");
+                const cid = getSecret("clientId");
+                const cs = getSecret("clientSecret");
+
+                switch (action) {
+                    case "auth0-view-user": {
+                        pushNav();
+                        const data = await auth0GetUser(d, cid, cs, id);
+                        setResult({ type: "auth0-user-detail", data });
+                        setResultTitle("User Detail");
+                        break;
+                    }
+                    case "auth0-block": {
+                        const data = await auth0BlockUser(d, cid, cs, id);
+                        addToast({ type: "success", message: `User blocked` });
+                        setResult({ type: "auth0-user-detail", data });
+                        break;
+                    }
+                    case "auth0-unblock": {
+                        const data = await auth0UnblockUser(d, cid, cs, id);
+                        addToast({ type: "success", message: `User unblocked` });
+                        setResult({ type: "auth0-user-detail", data });
+                        break;
+                    }
+                    case "auth0-delete": {
+                        pushNav();
+                        await auth0DeleteUser(d, cid, cs, id);
+                        setResult({ type: "auth0-user-deleted", data: { userId: id } });
+                        setResultTitle("User Deleted");
+                        break;
+                    }
+                    case "auth0-view-roles": {
+                        pushNav();
+                        const data = await auth0GetUserRoles(d, cid, cs, id);
+                        setResult({ type: "auth0-user-roles", data: { userId: id, roles: data } });
+                        setResultTitle("User Roles");
+                        break;
+                    }
+                    case "auth0-assign-role": {
+                        // id format: "userId::roleId"
+                        const [userId, roleId] = id.split("::");
+                        await auth0AssignRoles(d, cid, cs, userId, [roleId]);
+                        addToast({ type: "success", message: "Role assigned" });
+                        const data = await auth0GetUserRoles(d, cid, cs, userId);
+                        setResult({ type: "auth0-user-roles", data: { userId, roles: data } });
+                        break;
+                    }
+                    case "auth0-remove-role": {
+                        const [userId, roleId] = id.split("::");
+                        await auth0RemoveRoles(d, cid, cs, userId, [roleId]);
+                        addToast({ type: "success", message: "Role removed" });
+                        const data = await auth0GetUserRoles(d, cid, cs, userId);
+                        setResult({ type: "auth0-user-roles", data: { userId, roles: data } });
+                        break;
+                    }
+                    case "auth0-view-org-members": {
+                        pushNav();
+                        const data = await auth0ListOrgMembers(d, cid, cs, id);
+                        setResult({ type: "auth0-org-members", data: { orgId: id, members: data } });
+                        setResultTitle("Organization Members");
+                        break;
+                    }
+                    case "auth0-view-log": {
+                        pushNav();
+                        const data = await auth0GetLog(d, cid, cs, id);
+                        setResult({ type: "auth0-log-detail", data });
+                        setResultTitle("Log Detail");
+                        break;
+                    }
+                    case "auth0-view-client": {
+                        pushNav();
+                        const data = await auth0GetClient(d, cid, cs, id);
+                        setResult({ type: "auth0-client-detail", data });
+                        setResultTitle("Client Detail");
+                        break;
+                    }
+                    case "auth0-revoke-grant": {
+                        await auth0RevokeGrant(d, cid, cs, id);
+                        addToast({ type: "success", message: "Grant revoked" });
+                        const data = await auth0ListGrants(d, cid, cs);
+                        setResult({ type: "auth0-grants", data });
+                        break;
+                    }
+                    case "auth0-update-metadata": {
+                        pushNav();
+                        const data = await auth0GetUser(d, cid, cs, id);
+                        setResult({ type: "auth0-user-detail", data });
+                        setResultTitle("Update Metadata");
+                        break;
+                    }
+                }
+                setLoading(null);
+                return;
+            }
+
+            // ── Clerk actions ───────────────────────────────────────────
+            if (!checkRequiredSecrets(["secretKey"])) { setLoading(null); return; }
+            const sk = getSecret("secretKey");
+
             switch (action) {
                 case "view-user": {
                     pushNav();
@@ -571,30 +1109,10 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                     break;
                 }
                 case "session-create-token": {
-                    // Fetch user's orgs to offer org-scoped token option
-                    try {
-                        const currentSessions = (result as Extract<ToolResult, { type: "clerk-sessions" }>);
-                        const session = currentSessions?.data?.data?.find((s: ClerkSession) => s.id === id);
-                        const userId = session?.user_id;
-                        if (userId) {
-                            const orgsResult = await clerkGetUserOrgs(sk, userId);
-                            if (orgsResult.data.length > 0) {
-                                setOrgTokenPicker({
-                                    sessionId: id,
-                                    userId,
-                                    orgs: orgsResult.data.map(m => m.organization),
-                                    loading: false,
-                                });
-                                break;
-                            }
-                        }
-                    } catch {
-                        // If we can't fetch orgs, just create token without org scope
-                    }
-                    pushNav();
-                    const data = await clerkCreateSessionToken(sk, id);
-                    setResult({ type: "clerk-token", data });
-                    setResultTitle("Session Token");
+                    setTokenPicker({
+                        sessionId: id,
+                        loading: false,
+                    });
                     break;
                 }
                 case "session-revoke": {
@@ -626,7 +1144,7 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                     break;
                 }
                 case "user-get-token": {
-                    // id = user_id — fetch active sessions, then create token
+                    // id = user_id — fetch active sessions, then show token picker
                     const sessions = await clerkListSessions(sk, id, "active");
                     const activeSession = sessions.data.find(s => s.status === "active");
                     if (!activeSession) {
@@ -635,24 +1153,10 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                         setResultTitle("No Active Session");
                         break;
                     }
-                    try {
-                        const orgsResult = await clerkGetUserOrgs(sk, id);
-                        if (orgsResult.data.length > 0) {
-                            setOrgTokenPicker({
-                                sessionId: activeSession.id,
-                                userId: id,
-                                orgs: orgsResult.data.map(m => m.organization),
-                                loading: false,
-                            });
-                            break;
-                        }
-                    } catch {
-                        // No orgs
-                    }
-                    pushNav();
-                    const tokenData = await clerkCreateSessionToken(sk, activeSession.id);
-                    setResult({ type: "clerk-token", data: tokenData });
-                    setResultTitle("User Token");
+                    setTokenPicker({
+                        sessionId: activeSession.id,
+                        loading: false,
+                    });
                     break;
                 }
             }
@@ -795,34 +1299,33 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                 </DialogContent>
             </Dialog>
 
-            {/* Org-Scoped Token Picker Dialog */}
-            <Dialog open={orgTokenPicker !== null} onOpenChange={() => setOrgTokenPicker(null)}>
-                <DialogContent className="max-w-sm max-h-[85vh] flex flex-col">
+            {/* Token Picker Dialog */}
+            <Dialog open={tokenPicker !== null} onOpenChange={() => setTokenPicker(null)}>
+                <DialogContent className="max-w-sm">
                     <DialogHeader>
                         <DialogTitle>Create Session Token</DialogTitle>
                         <DialogDescription>
-                            Choose scope and expiry for the token
+                            Choose expiry and generate a session token
                         </DialogDescription>
                     </DialogHeader>
-                    {orgTokenPicker && (
-                        <OrgTokenPicker
-                            picker={orgTokenPicker}
-                            onSelect={async (orgId, expiresIn) => {
+                    {tokenPicker && (
+                        <TokenPicker
+                            picker={tokenPicker}
+                            onSelect={async (expiresIn) => {
                                 if (!selectedEnv) return;
-                                setOrgTokenPicker({ ...orgTokenPicker, loading: true });
+                                setTokenPicker({ ...tokenPicker, loading: true });
                                 try {
                                     const data = await clerkCreateSessionToken(
                                         getSecret("secretKey"),
-                                        orgTokenPicker.sessionId,
-                                        orgId,
+                                        tokenPicker.sessionId,
                                         expiresIn,
                                     );
-                                    setOrgTokenPicker(null);
+                                    setTokenPicker(null);
                                     pushNav();
                                     setResult({ type: "clerk-token", data });
-                                    setResultTitle(orgId ? "Org-Scoped Token" : "Personal Token");
+                                    setResultTitle("Session Token");
                                 } catch (err) {
-                                    setOrgTokenPicker(null);
+                                    setTokenPicker(null);
                                     setResult({ type: "error", message: err instanceof Error ? err.message : String(err) });
                                 }
                             }}
@@ -864,6 +1367,91 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* Cognito Auth Form Dialog */}
+            <Dialog open={authForm !== null} onOpenChange={(open) => { if (!open) setAuthForm(null); }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Initiate Auth</DialogTitle>
+                        <DialogDescription>
+                            Authenticate with USER_PASSWORD_AUTH flow
+                        </DialogDescription>
+                    </DialogHeader>
+                    {authForm && (
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Username</label>
+                                <Input
+                                    placeholder="Enter username or email"
+                                    value={authForm.username}
+                                    onChange={(e) => setAuthForm({ ...authForm, username: e.target.value })}
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Password</label>
+                                <Input
+                                    type="password"
+                                    placeholder="Enter password"
+                                    value={authForm.password}
+                                    onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === "Enter") submitAuthForm(); }}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setAuthForm(null)}>
+                                    Cancel
+                                </Button>
+                                <Button size="sm" onClick={submitAuthForm} disabled={!authForm.username || !authForm.password}>
+                                    Authenticate
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Auth0 Token Form Dialog */}
+            <Dialog open={auth0TokenForm !== null} onOpenChange={(open) => { if (!open) setAuth0TokenForm(null); }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Generate Token</DialogTitle>
+                        <DialogDescription>
+                            Request an access token via client_credentials grant
+                        </DialogDescription>
+                    </DialogHeader>
+                    {auth0TokenForm && (
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Audience</label>
+                                <Input
+                                    placeholder="https://your-api.example.com"
+                                    value={auth0TokenForm.audience}
+                                    onChange={(e) => setAuth0TokenForm({ ...auth0TokenForm, audience: e.target.value })}
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Scope (optional)</label>
+                                <Input
+                                    placeholder="read:users write:users"
+                                    value={auth0TokenForm.scope}
+                                    onChange={(e) => setAuth0TokenForm({ ...auth0TokenForm, scope: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === "Enter") submitAuth0TokenForm(); }}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => setAuth0TokenForm(null)}>
+                                    Cancel
+                                </Button>
+                                <Button size="sm" onClick={submitAuth0TokenForm} disabled={!auth0TokenForm.audience}>
+                                    Generate
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </>
     );
 };
@@ -879,28 +1467,17 @@ const EXPIRY_OPTIONS = [
     { label: "30 days", value: 2592000 },
 ] as const;
 
-const OrgTokenPicker: React.FC<{
-    picker: OrgTokenPickerState;
-    onSelect: (orgId?: string, expiresIn?: number) => void;
+const TokenPicker: React.FC<{
+    picker: TokenPickerState;
+    onSelect: (expiresIn?: number) => void;
 }> = ({ picker, onSelect }) => {
     const [expiryIdx, setExpiryIdx] = useState(0);
-    const [orgSearch, setOrgSearch] = useState("");
     const expiry = EXPIRY_OPTIONS[expiryIdx].value;
 
-    const filteredOrgs = useMemo(() => {
-        if (!orgSearch.trim()) return picker.orgs;
-        const q = orgSearch.toLowerCase();
-        return picker.orgs.filter(
-            (org) =>
-                org.name.toLowerCase().includes(q) ||
-                (org.slug && org.slug.toLowerCase().includes(q))
-        );
-    }, [picker.orgs, orgSearch]);
-
     return (
-        <div className="space-y-4 min-h-0 flex flex-col">
-            {/* Expiry selector — always visible */}
-            <div className="space-y-2 shrink-0">
+        <div className="space-y-4">
+            {/* Expiry selector */}
+            <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                     <Timer className="h-3.5 w-3.5" />
                     Token Expiry
@@ -922,76 +1499,33 @@ const OrgTokenPicker: React.FC<{
                 </div>
             </div>
 
-            <div className="space-y-2 min-h-0 flex flex-col">
-                <label className="text-xs font-medium text-muted-foreground shrink-0">Organization Scope</label>
-
-                {/* Search orgs — show when 4+ orgs */}
-                {picker.orgs.length >= 4 && (
-                    <div className="relative shrink-0">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                        <Input
-                            placeholder="Search organizations…"
-                            value={orgSearch}
-                            onChange={(e) => setOrgSearch(e.target.value)}
-                            className="pl-8 h-8 text-xs"
-                        />
-                    </div>
-                )}
-
-                {/* Scrollable org list */}
-                <div className="overflow-y-auto max-h-60 space-y-1.5 pr-1">
-                    {/* Personal token — always first */}
-                    <Button
-                        variant="outline"
-                        className="w-full justify-start h-auto py-3 shrink-0"
-                        disabled={picker.loading}
-                        onClick={() => onSelect(undefined, expiry)}
-                    >
-                        <User className="h-4 w-4 mr-2.5 shrink-0 text-muted-foreground" />
-                        <div className="text-left">
-                            <p className="text-sm font-medium">Personal Token</p>
-                            <p className="text-xs text-muted-foreground">No organization scope</p>
-                        </div>
-                    </Button>
-
-                    {filteredOrgs.length === 0 && orgSearch.trim() ? (
-                        <div className="flex flex-col items-center py-4 text-muted-foreground">
-                            <Search className="h-5 w-5 mb-1.5 opacity-30" />
-                            <p className="text-xs">No orgs matching "{orgSearch}"</p>
-                        </div>
-                    ) : (
-                        filteredOrgs.map((org) => (
-                            <Button
-                                key={org.id}
-                                variant="outline"
-                                className="w-full justify-start h-auto py-3"
-                                disabled={picker.loading}
-                                onClick={() => onSelect(org.id, expiry)}
-                            >
-                                <Building2 className="h-4 w-4 mr-2.5 shrink-0 text-muted-foreground" />
-                                <div className="text-left min-w-0">
-                                    <p className="text-sm font-medium truncate">{org.name}</p>
-                                    {org.slug && <p className="text-xs text-muted-foreground truncate">{org.slug}</p>}
-                                </div>
-                            </Button>
-                        ))
-                    )}
-                </div>
-
-                {/* Count indicator */}
-                {picker.orgs.length >= 4 && (
-                    <p className="text-[10px] text-muted-foreground text-center shrink-0">
-                        {filteredOrgs.length} of {picker.orgs.length} organization{picker.orgs.length !== 1 ? "s" : ""}
-                    </p>
-                )}
+            {/* Info note */}
+            <div className="flex items-start gap-2 rounded-md border bg-muted/50 p-2.5 text-xs text-muted-foreground">
+                <Shield className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <p>
+                    The token will reflect the session's current active organization context,
+                    which is set by the user in your app via Clerk's frontend SDK.
+                </p>
             </div>
 
-            {picker.loading && (
-                <div className="flex items-center justify-center py-2 shrink-0">
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    <span className="text-sm text-muted-foreground">Generating token…</span>
-                </div>
-            )}
+            {/* Generate button */}
+            <Button
+                className="w-full"
+                disabled={picker.loading}
+                onClick={() => onSelect(expiry)}
+            >
+                {picker.loading ? (
+                    <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Generating…
+                    </>
+                ) : (
+                    <>
+                        <KeyRound className="h-4 w-4 mr-2" />
+                        Generate Token
+                    </>
+                )}
+            </Button>
         </div>
     );
 };
@@ -1086,6 +1620,91 @@ const ToolResultView: React.FC<{
 
         case "cognito-validate":
             return <CognitoValidateView data={result.data} />;
+
+        case "cognito-pool-stats":
+            return <CognitoPoolStatsView data={result.data} />;
+
+        case "cognito-users":
+            return <CognitoUsersView data={result.data} onAction={onAction} />;
+
+        case "cognito-user-detail":
+            return <CognitoUserDetailView data={result.data} onAction={onAction} />;
+
+        case "cognito-groups":
+            return <CognitoGroupsView data={result.data} />;
+
+        case "cognito-user-groups":
+            return <CognitoUserGroupsView data={result.data} onAction={onAction} />;
+
+        case "cognito-clients":
+            return <CognitoClientsView data={result.data} />;
+
+        case "cognito-jwt":
+            return <CognitoJwtView data={result.data} />;
+
+        case "cognito-jwks":
+            return <CognitoJwksView data={result.data} />;
+
+        case "cognito-auth-result":
+            return <CognitoAuthResultView data={result.data} />;
+
+        // ── Auth0 ───────────────────────────────────────────────────
+        case "auth0-verify":
+            return <Auth0VerifyView data={result.data} />;
+
+        case "auth0-tenant":
+            return <Auth0TenantView data={result.data} />;
+
+        case "auth0-users":
+            return <Auth0UsersView data={result.data} onAction={onAction} />;
+
+        case "auth0-user-detail":
+            return <Auth0UserDetailView data={result.data} onAction={onAction} />;
+
+        case "auth0-connections":
+            return <Auth0ConnectionsView data={result.data} />;
+
+        case "auth0-roles":
+            return <Auth0RolesView data={result.data} />;
+
+        case "auth0-user-roles":
+            return <Auth0UserRolesView data={result.data} onAction={onAction} />;
+
+        case "auth0-orgs":
+            return <Auth0OrgsView data={result.data} onAction={onAction} />;
+
+        case "auth0-org-members":
+            return <Auth0OrgMembersView data={result.data} />;
+
+        case "auth0-logs":
+            return <Auth0LogsView data={result.data} onAction={onAction} />;
+
+        case "auth0-log-detail":
+            return <Auth0LogDetailView data={result.data} />;
+
+        case "auth0-clients":
+            return <Auth0ClientsView data={result.data} onAction={onAction} />;
+
+        case "auth0-client-detail":
+            return <Auth0ClientDetailView data={result.data} />;
+
+        case "auth0-jwt":
+            return <Auth0JwtView data={result.data} />;
+
+        case "auth0-jwks":
+            return <Auth0JwksView data={result.data} />;
+
+        case "auth0-token":
+            return <Auth0TokenView data={result.data} />;
+
+        case "auth0-actions":
+            return <Auth0ActionsView data={result.data} />;
+
+        case "auth0-grants":
+            return <Auth0GrantsView data={result.data} onAction={onAction} />;
+
+        case "auth0-user-deleted":
+            return <Auth0UserDeletedView data={result.data} />;
     }
 };
 
@@ -1271,41 +1890,41 @@ const ClerkInvitationsView: React.FC<{
             ) : (
                 <div className="rounded-lg border divide-y">
                     {data.data.map((inv) => (
-                        <div key={inv.id} className="p-3 space-y-1.5">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2.5">
-                                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                                        <Mail className="h-4 w-4 text-primary" />
+                        <div key={inv.id} className="p-3 space-y-2">
+                            <div className="flex items-start gap-2.5">
+                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                                    <Mail className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0 space-y-1.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-sm font-medium truncate">{inv.email_address}</p>
+                                        <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 capitalize shrink-0 ${statusColor(inv.status)}`}>
+                                            {inv.status}
+                                        </Badge>
                                     </div>
-                                    <div>
-                                        <p className="text-sm font-medium">{inv.email_address}</p>
-                                        <p className="text-xs text-muted-foreground font-mono">{inv.id}</p>
+                                    <p className="text-[10px] text-muted-foreground font-mono truncate">{inv.id}</p>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                            {inv.created_at && (
+                                                <span className="flex items-center gap-1">
+                                                    <Calendar className="h-3 w-3" />
+                                                    {new Date(inv.created_at).toLocaleDateString()}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {inv.status === "pending" && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                onClick={() => onAction("revoke-invitation", inv.id)}
+                                            >
+                                                <Ban className="h-3 w-3 mr-1" />
+                                                Revoke
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <Badge variant="secondary" className={`text-xs capitalize ${statusColor(inv.status)}`}>
-                                        {inv.status}
-                                    </Badge>
-                                    {inv.status === "pending" && (
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                                            onClick={() => onAction("revoke-invitation", inv.id)}
-                                        >
-                                            <Ban className="h-3 w-3 mr-1" />
-                                            Revoke
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3 pl-10 text-xs text-muted-foreground">
-                                {inv.created_at && (
-                                    <span className="flex items-center gap-1">
-                                        <Calendar className="h-3 w-3" />
-                                        {new Date(inv.created_at).toLocaleDateString()}
-                                    </span>
-                                )}
                             </div>
                         </div>
                     ))}
@@ -2953,6 +3572,1111 @@ const CognitoValidateView: React.FC<{ data: CognitoValidateResult }> = ({ data }
         <div className="grid grid-cols-2 gap-3">
             <InfoCard label="Region" value={data.region} />
             <InfoCard label="User Pool ID" value={data.user_pool_id} />
+            {data.valid && <InfoCard label="Signing Keys" value={String(data.key_count)} />}
+        </div>
+    </div>
+);
+
+// ─── Cognito Pool Stats ──────────────────────────────────────────────────────
+
+const CognitoPoolStatsView: React.FC<{ data: CognitoPoolStats }> = ({ data }) => {
+    const pw = (data.policies as Record<string, unknown>)?.PasswordPolicy as Record<string, unknown> | undefined;
+    return (
+        <div className="space-y-3">
+            <div className="flex items-start gap-3 rounded-lg border border-green-500/50 bg-green-500/10 p-4">
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                    <p className="text-sm font-medium">IAM credentials validated</p>
+                    <p className="text-sm text-muted-foreground">Successfully connected to User Pool</p>
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+                <InfoCard label="Pool Name" value={data.name} />
+                <InfoCard label="Pool ID" value={data.id} />
+                <InfoCard label="Estimated Users" value={data.estimated_number_of_users.toLocaleString()} />
+                <InfoCard label="MFA" value={data.mfa_configuration} />
+                <InfoCard label="Deletion Protection" value={data.deletion_protection} />
+                <InfoCard label="Created" value={new Date(data.creation_date * 1000).toLocaleDateString()} />
+            </div>
+            {data.auto_verified_attributes.length > 0 && (
+                <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Auto-Verified Attributes</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                        {data.auto_verified_attributes.map((a) => (
+                            <Badge key={a} variant="secondary" className="text-xs">{a}</Badge>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {data.username_attributes.length > 0 && (
+                <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Username Attributes</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                        {data.username_attributes.map((a) => (
+                            <Badge key={a} variant="secondary" className="text-xs">{a}</Badge>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {pw && (
+                <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground mb-1">Password Policy</p>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                        <p className="text-xs">Min length: <span className="font-mono font-medium">{String(pw.MinimumLength ?? "-")}</span></p>
+                        <p className="text-xs">Uppercase: <span className="font-mono font-medium">{pw.RequireUppercase ? "Yes" : "No"}</span></p>
+                        <p className="text-xs">Lowercase: <span className="font-mono font-medium">{pw.RequireLowercase ? "Yes" : "No"}</span></p>
+                        <p className="text-xs">Numbers: <span className="font-mono font-medium">{pw.RequireNumbers ? "Yes" : "No"}</span></p>
+                        <p className="text-xs">Symbols: <span className="font-mono font-medium">{pw.RequireSymbols ? "Yes" : "No"}</span></p>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ─── Cognito Users ───────────────────────────────────────────────────────────
+
+const cognitoStatusColor = (status: string) => {
+    switch (status) {
+        case "CONFIRMED": return "text-green-500";
+        case "UNCONFIRMED": return "text-yellow-500";
+        case "COMPROMISED": return "text-red-500";
+        case "FORCE_CHANGE_PASSWORD": return "text-orange-500";
+        case "RESET_REQUIRED": return "text-orange-500";
+        default: return "text-muted-foreground";
+    }
+};
+
+const CognitoUsersView: React.FC<{
+    data: CognitoListUsersResult;
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => {
+    const [search, setSearch] = useState("");
+    const filtered = data.users.filter((u) => {
+        const q = search.toLowerCase();
+        return (
+            u.username.toLowerCase().includes(q) ||
+            (u.email?.toLowerCase().includes(q) ?? false) ||
+            (u.name?.toLowerCase().includes(q) ?? false)
+        );
+    });
+
+    if (data.users.length === 0)
+        return <EmptyState icon={Users} message="No users found" />;
+
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2">
+                <Badge variant="secondary">{data.users.length} users</Badge>
+                <div className="relative flex-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Filter users…"
+                        className="h-7 pl-7 text-xs"
+                    />
+                </div>
+            </div>
+            <div className="space-y-1.5">
+                {filtered.map((u) => (
+                    <button
+                        key={u.username}
+                        type="button"
+                        className="w-full flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 cursor-pointer transition-colors text-left"
+                        onClick={() => onAction("cognito-view-user", u.username)}
+                    >
+                        <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{u.email || u.username}</p>
+                            {u.name && <p className="text-xs text-muted-foreground truncate">{u.name}</p>}
+                            {u.email && u.email !== u.username && (
+                                <p className="text-[10px] text-muted-foreground font-mono truncate">{u.username}</p>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <Badge variant={u.enabled ? "secondary" : "destructive"} className="text-[10px]">
+                                {u.enabled ? "Enabled" : "Disabled"}
+                            </Badge>
+                            <span className={`text-[10px] font-mono ${cognitoStatusColor(u.status)}`}>{u.status}</span>
+                            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ─── Cognito User Detail ─────────────────────────────────────────────────────
+
+const CognitoUserDetailView: React.FC<{
+    data: CognitoUserDetail;
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        {/* Status banner */}
+        <div className={`flex items-start gap-3 rounded-lg border p-4 ${data.enabled ? "border-green-500/50 bg-green-500/10" : "border-destructive/50 bg-destructive/10"
+            }`}>
+            {data.enabled ? (
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+            ) : (
+                <Ban className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+            )}
+            <div className="space-y-1">
+                <p className="text-sm font-medium">{data.email || data.username}</p>
+                <div className="flex items-center gap-2">
+                    <Badge variant={data.enabled ? "secondary" : "destructive"} className="text-[10px]">
+                        {data.enabled ? "Enabled" : "Disabled"}
+                    </Badge>
+                    <span className={`text-[10px] font-mono ${cognitoStatusColor(data.status)}`}>{data.status}</span>
+                </div>
+            </div>
+        </div>
+
+        {/* Info cards */}
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard label="Username" value={data.username} />
+            {data.email && <InfoCard label="Email" value={data.email} />}
+            {data.name && <InfoCard label="Name" value={data.name} />}
+            <InfoCard label="Created" value={new Date(data.create_date * 1000).toLocaleString()} />
+            <InfoCard label="Modified" value={new Date(data.modified_date * 1000).toLocaleString()} />
+            {data.preferred_mfa && <InfoCard label="Preferred MFA" value={data.preferred_mfa} />}
+        </div>
+
+        {/* Attributes */}
+        {data.attributes.length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-2">All Attributes</p>
+                <div className="space-y-1">
+                    {data.attributes.map((attr) => (
+                        <div key={attr.name} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground font-mono">{attr.name}</span>
+                            <span className="font-medium font-mono break-all text-right max-w-[60%]">{attr.value}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+                size="sm"
+                variant={data.enabled ? "destructive" : "default"}
+                className="text-xs"
+                onClick={() => onAction(data.enabled ? "cognito-disable" : "cognito-enable", data.username)}
+            >
+                <Ban className="h-3.5 w-3.5 mr-1.5" />
+                {data.enabled ? "Disable User" : "Enable User"}
+            </Button>
+            <Button size="sm" variant="outline" className="text-xs"
+                onClick={() => onAction("cognito-reset-pwd", data.username)}>
+                <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                Reset Password
+            </Button>
+            {data.status === "UNCONFIRMED" && (
+                <Button size="sm" variant="outline" className="text-xs"
+                    onClick={() => onAction("cognito-confirm", data.username)}>
+                    <UserCheck className="h-3.5 w-3.5 mr-1.5" />
+                    Confirm User
+                </Button>
+            )}
+            <Button size="sm" variant="outline" className="text-xs"
+                onClick={() => onAction("cognito-view-groups", data.username)}>
+                <Layers className="h-3.5 w-3.5 mr-1.5" />
+                View Groups
+            </Button>
+            <Button size="sm" variant="outline" className="text-xs"
+                onClick={() => onAction("cognito-signout", data.username)}>
+                <LogOut className="h-3.5 w-3.5 mr-1.5" />
+                Global Sign Out
+            </Button>
+        </div>
+    </div>
+);
+
+// ─── Cognito Groups ──────────────────────────────────────────────────────────
+
+const CognitoGroupsView: React.FC<{ data: CognitoListGroupsResult }> = ({ data }) => {
+    if (data.groups.length === 0)
+        return <EmptyState icon={Layers} message="No groups found" />;
+
+    return (
+        <div className="space-y-3">
+            <Badge variant="secondary">{data.groups.length} groups</Badge>
+            <div className="space-y-1.5">
+                {data.groups.map((g) => (
+                    <div key={g.group_name} className="rounded-lg border p-3 space-y-1">
+                        <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium">{g.group_name}</p>
+                            {g.precedence != null && (
+                                <Badge variant="secondary" className="text-[10px]">Precedence: {g.precedence}</Badge>
+                            )}
+                        </div>
+                        {g.description && <p className="text-xs text-muted-foreground">{g.description}</p>}
+                        {g.role_arn && <p className="text-[10px] text-muted-foreground font-mono truncate">{g.role_arn}</p>}
+                        <p className="text-[10px] text-muted-foreground">
+                            Created: {new Date(g.creation_date * 1000).toLocaleDateString()}
+                        </p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ─── Cognito User Groups ─────────────────────────────────────────────────────
+
+const CognitoUserGroupsView: React.FC<{
+    data: { username: string; groups: CognitoListGroupsResult };
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        <div className="flex items-center gap-2">
+            <InfoCard label="User" value={data.username} />
+        </div>
+        {data.groups.groups.length === 0 ? (
+            <EmptyState icon={Layers} message="User is not in any groups" />
+        ) : (
+            <div className="space-y-1.5">
+                {data.groups.groups.map((g) => (
+                    <div key={g.group_name} className="flex items-center justify-between rounded-lg border p-3">
+                        <div className="min-w-0">
+                            <p className="text-sm font-medium">{g.group_name}</p>
+                            {g.description && <p className="text-xs text-muted-foreground">{g.description}</p>}
+                        </div>
+                        <Button
+                            size="sm"
+                            variant="destructive"
+                            className="text-xs shrink-0 ml-2"
+                            onClick={() => onAction("cognito-remove-group", `${data.username}::${g.group_name}`)}
+                        >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Remove
+                        </Button>
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+// ─── Cognito Clients ─────────────────────────────────────────────────────────
+
+const CognitoClientsView: React.FC<{ data: CognitoListClientsResult }> = ({ data }) => {
+    if (data.clients.length === 0)
+        return <EmptyState icon={Wrench} message="No app clients found" />;
+
+    return (
+        <div className="space-y-3">
+            <Badge variant="secondary">{data.clients.length} clients</Badge>
+            <div className="space-y-1.5">
+                {data.clients.map((c) => (
+                    <div key={c.client_id} className="rounded-lg border p-3">
+                        <p className="text-sm font-medium">{c.client_name}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">{c.client_id}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ─── Cognito JWT Decode ──────────────────────────────────────────────────────
+
+const CognitoJwtView: React.FC<{ data: CognitoJwtResult }> = ({ data }) => {
+    const now = Math.floor(Date.now() / 1000);
+    const ttl = data.expires_at ? data.expires_at - now : null;
+
+    return (
+        <div className="space-y-3">
+            {/* Validity banner */}
+            <div className={`flex items-start gap-3 rounded-lg border p-4 ${data.valid
+                ? "border-green-500/50 bg-green-500/10"
+                : "border-destructive/50 bg-destructive/10"
+                }`}>
+                {data.valid ? (
+                    <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                ) : (
+                    <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+                )}
+                <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                        {data.valid ? "Token is valid" : "Token is invalid"}
+                    </p>
+                    {data.error && <p className="text-xs text-muted-foreground">{data.error}</p>}
+                </div>
+            </div>
+
+            {/* Status badges */}
+            <div className="flex gap-2">
+                <Badge variant={data.signature_verified ? "secondary" : "destructive"}>
+                    {data.signature_verified ? "Signature valid" : "Signature invalid"}
+                </Badge>
+                <Badge variant={data.expired ? "destructive" : "secondary"}>
+                    {data.expired ? "Expired" : ttl != null ? `Expires in ${ttl}s` : "No expiry"}
+                </Badge>
+            </div>
+
+            {/* Header */}
+            <div className="rounded-lg border relative">
+                <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Header</p>
+                <pre className="text-xs p-2 overflow-auto max-h-32 font-mono">
+                    {JSON.stringify(data.header, null, 2)}
+                </pre>
+                <CopyButton text={JSON.stringify(data.header, null, 2)} />
+            </div>
+
+            {/* Payload */}
+            <div className="rounded-lg border relative">
+                <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Payload</p>
+                <pre className="text-xs p-2 overflow-auto max-h-64 font-mono">
+                    {JSON.stringify(data.payload, null, 2)}
+                </pre>
+                <CopyButton text={JSON.stringify(data.payload, null, 2)} />
+            </div>
+
+            {/* Key claims */}
+            <div className="grid grid-cols-2 gap-3">
+                {"sub" in data.payload && <InfoCard label="Subject (sub)" value={String(data.payload.sub)} />}
+                {"iss" in data.payload && <InfoCard label="Issuer (iss)" value={String(data.payload.iss)} />}
+                {data.issued_at != null && <InfoCard label="Issued At" value={new Date(data.issued_at * 1000).toLocaleString()} />}
+                {data.expires_at != null && <InfoCard label="Expires At" value={new Date(data.expires_at * 1000).toLocaleString()} />}
+                {"token_use" in data.payload && <InfoCard label="Token Use" value={String(data.payload.token_use)} />}
+                {"client_id" in data.payload && <InfoCard label="Client ID" value={String(data.payload.client_id)} />}
+            </div>
+        </div>
+    );
+};
+
+// ─── Cognito JWKS Viewer ─────────────────────────────────────────────────────
+
+const CognitoJwksView: React.FC<{ data: Record<string, unknown> }> = ({ data }) => {
+    const keys = (data.keys as Array<Record<string, unknown>>) || [];
+
+    if (keys.length === 0)
+        return <EmptyState icon={KeyRound} message="No keys found" />;
+
+    return (
+        <div className="space-y-3">
+            <Badge variant="secondary">{keys.length} key{keys.length !== 1 ? "s" : ""}</Badge>
+            {keys.map((key, i) => (
+                <div key={i} className="rounded-lg border relative p-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                        {"kid" in key && <InfoCard label="Key ID (kid)" value={String(key.kid)} />}
+                        {"kty" in key && <InfoCard label="Key Type (kty)" value={String(key.kty)} />}
+                        {"alg" in key && <InfoCard label="Algorithm (alg)" value={String(key.alg)} />}
+                        {"use" in key && <InfoCard label="Use" value={String(key.use)} />}
+                    </div>
+                    <div className="rounded-lg border relative">
+                        <pre className="text-xs p-2 overflow-auto max-h-32 font-mono">
+                            {JSON.stringify(key, null, 2)}
+                        </pre>
+                        <CopyButton text={JSON.stringify(key, null, 2)} />
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+// ─── Cognito Auth Result ─────────────────────────────────────────────────────
+
+const CognitoAuthResultView: React.FC<{ data: CognitoAuthResult }> = ({ data }) => (
+    <div className="space-y-3">
+        <div className={`flex items-start gap-3 rounded-lg border p-4 ${data.authenticated
+            ? "border-green-500/50 bg-green-500/10"
+            : "border-yellow-500/50 bg-yellow-500/10"
+            }`}>
+            {data.authenticated ? (
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+            ) : (
+                <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
+            )}
+            <div className="space-y-1">
+                <p className="text-sm font-medium">
+                    {data.authenticated ? "Authentication successful" : `Challenge: ${data.challenge_name}`}
+                </p>
+                {data.token_type && <p className="text-xs text-muted-foreground">Token type: {data.token_type}</p>}
+                {data.expires_in && <p className="text-xs text-muted-foreground">Expires in: {data.expires_in}s</p>}
+            </div>
+        </div>
+
+        {data.access_token && (
+            <div className="rounded-lg border relative">
+                <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Access Token</p>
+                <pre className="text-xs p-2 overflow-auto max-h-24 font-mono break-all whitespace-pre-wrap">
+                    {data.access_token}
+                </pre>
+                <CopyButton text={data.access_token} />
+            </div>
+        )}
+
+        {data.id_token && (
+            <div className="rounded-lg border relative">
+                <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">ID Token</p>
+                <pre className="text-xs p-2 overflow-auto max-h-24 font-mono break-all whitespace-pre-wrap">
+                    {data.id_token}
+                </pre>
+                <CopyButton text={data.id_token} />
+            </div>
+        )}
+
+        {data.refresh_token && (
+            <div className="rounded-lg border relative">
+                <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Refresh Token</p>
+                <pre className="text-xs p-2 overflow-auto max-h-24 font-mono break-all whitespace-pre-wrap">
+                    {data.refresh_token}
+                </pre>
+                <CopyButton text={data.refresh_token} />
+            </div>
+        )}
+
+        {data.challenge_parameters != null && (
+            <div className="rounded-lg border relative">
+                <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Challenge Parameters</p>
+                <pre className="text-xs p-2 overflow-auto max-h-32 font-mono">
+                    {JSON.stringify(data.challenge_parameters, null, 2)}
+                </pre>
+            </div>
+        )}
+    </div>
+);
+
+// ─── Auth0 View Components ───────────────────────────────────────────────────
+
+const Auth0VerifyView: React.FC<{ data: Auth0VerifyResult }> = ({ data }) => (
+    <div className="space-y-3">
+        <div
+            className={`flex items-start gap-3 rounded-lg border p-4 ${data.valid
+                ? "border-green-500/50 bg-green-500/10"
+                : "border-destructive/50 bg-destructive/10"
+                }`}
+        >
+            {data.valid ? (
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+            ) : (
+                <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+            )}
+            <div className="space-y-1">
+                <p className="text-sm font-medium">
+                    {data.valid ? "Connection verified" : "Connection failed"}
+                </p>
+                {data.error && (
+                    <p className="text-sm text-muted-foreground">{data.error}</p>
+                )}
+            </div>
+        </div>
+        {data.valid && (
+            <div className="grid grid-cols-2 gap-3">
+                <InfoCard label="Tenant" value={data.tenant_name || "—"} />
+                <InfoCard label="Region" value={data.region || "—"} />
+                <InfoCard label="Environment" value={data.environment || "—"} />
+            </div>
+        )}
+    </div>
+);
+
+const Auth0TenantView: React.FC<{ data: Auth0TenantSettings }> = ({ data }) => (
+    <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard label="Friendly Name" value={data.friendly_name || "—"} />
+            <InfoCard label="Default Directory" value={data.default_directory || "—"} />
+            <InfoCard label="Support Email" value={data.support_email || "—"} />
+            <InfoCard label="Sandbox Version" value={data.sandbox_version || "—"} />
+            <InfoCard label="Session Lifetime" value={data.session_lifetime ? `${data.session_lifetime / 3600}h` : "—"} />
+            <InfoCard label="Idle Session" value={data.idle_session_lifetime ? `${data.idle_session_lifetime / 3600}h` : "—"} />
+        </div>
+        {data.support_url && (
+            <InfoCard label="Support URL" value={data.support_url} />
+        )}
+        {Object.keys(data.flags).length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-2">Flags</p>
+                <div className="flex flex-wrap gap-1">
+                    {Object.entries(data.flags).filter(([, v]) => v === true).map(([k]) => (
+                        <Badge key={k} variant="secondary" className="text-[10px]">{k}</Badge>
+                    ))}
+                </div>
+            </div>
+        )}
+    </div>
+);
+
+const Auth0UsersView: React.FC<{
+    data: Auth0ListResult<Auth0User>;
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        <div className="flex items-center justify-between">
+            <Badge variant="outline">{data.total} user{data.total !== 1 ? "s" : ""}</Badge>
+        </div>
+        {data.items.length === 0 ? (
+            <EmptyState icon={Users} message="No users found" />
+        ) : (
+            <div className="space-y-2">
+                {data.items.map((u) => (
+                    <button
+                        key={u.user_id}
+                        type="button"
+                        className="w-full flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-accent cursor-pointer transition-colors"
+                        onClick={() => onAction("auth0-view-user", u.user_id)}
+                    >
+                        {u.picture ? (
+                            <img src={u.picture} alt="" className="h-8 w-8 rounded-full" />
+                        ) : (
+                            <User className="h-8 w-8 p-1.5 rounded-full bg-muted" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{u.name || u.email || u.user_id}</p>
+                            <p className="text-xs text-muted-foreground truncate">{u.email || "No email"}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            {u.blocked && <Badge variant="destructive" className="text-[10px]">Blocked</Badge>}
+                            {u.connection && <Badge variant="secondary" className="text-[10px]">{u.connection}</Badge>}
+                            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                    </button>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0UserDetailView: React.FC<{
+    data: Auth0UserDetail;
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+            {data.picture ? (
+                <img src={data.picture} alt="" className="h-10 w-10 rounded-full" />
+            ) : (
+                <User className="h-10 w-10 p-2 rounded-full bg-muted" />
+            )}
+            <div>
+                <p className="text-sm font-medium">{data.name || data.nickname || "—"}</p>
+                <p className="text-xs text-muted-foreground font-mono">{data.user_id}</p>
+            </div>
+        </div>
+
+        {/* Info grid */}
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard label="Email" value={data.email || "—"} />
+            <InfoCard label="Email Verified" value={data.email_verified === null ? "—" : data.email_verified ? "Yes" : "No"} />
+            <InfoCard label="Logins" value={data.logins_count?.toString() || "0"} />
+            <InfoCard label="Last Login" value={data.last_login ? new Date(data.last_login).toLocaleString() : "Never"} />
+            <InfoCard label="Last IP" value={data.last_ip || "—"} />
+            <InfoCard label="Blocked" value={data.blocked ? "Yes" : "No"} />
+            <InfoCard label="Created" value={data.created_at ? new Date(data.created_at).toLocaleString() : "—"} />
+            <InfoCard label="Updated" value={data.updated_at ? new Date(data.updated_at).toLocaleString() : "—"} />
+        </div>
+
+        {/* Identities */}
+        {data.identities.length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-2">Identities</p>
+                <div className="space-y-1">
+                    {data.identities.map((ident, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-[10px]">{String(ident.provider || ident.connection || "unknown")}</Badge>
+                            <span className="text-xs font-mono truncate">{String(ident.user_id || "")}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
+
+        {/* Metadata */}
+        {Object.keys(data.user_metadata).length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-1">User Metadata</p>
+                <pre className="text-xs font-mono overflow-auto max-h-24">
+                    {JSON.stringify(data.user_metadata, null, 2)}
+                </pre>
+            </div>
+        )}
+        {Object.keys(data.app_metadata).length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-1">App Metadata</p>
+                <pre className="text-xs font-mono overflow-auto max-h-24">
+                    {JSON.stringify(data.app_metadata, null, 2)}
+                </pre>
+            </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex flex-wrap gap-2 pt-1">
+            <Button variant="outline" size="sm" onClick={() => onAction("auth0-view-roles", data.user_id)}>
+                <Shield className="h-3.5 w-3.5 mr-1" /> Roles
+            </Button>
+            {data.blocked ? (
+                <Button variant="outline" size="sm" onClick={() => onAction("auth0-unblock", data.user_id)}>
+                    <UserCheck className="h-3.5 w-3.5 mr-1" /> Unblock
+                </Button>
+            ) : (
+                <Button variant="outline" size="sm" onClick={() => onAction("auth0-block", data.user_id)}>
+                    <Ban className="h-3.5 w-3.5 mr-1" /> Block
+                </Button>
+            )}
+            <Button variant="destructive" size="sm" onClick={() => onAction("auth0-delete", data.user_id)}>
+                <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+            </Button>
+        </div>
+    </div>
+);
+
+const Auth0ConnectionsView: React.FC<{ data: Auth0Connection[] }> = ({ data }) => (
+    <div className="space-y-3">
+        <Badge variant="outline">{data.length} connection{data.length !== 1 ? "s" : ""}</Badge>
+        {data.length === 0 ? (
+            <EmptyState icon={Layers} message="No connections found" />
+        ) : (
+            <div className="space-y-2">
+                {data.map((c) => (
+                    <div key={c.id} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium">{c.name}</p>
+                            <Badge variant="secondary" className="text-[10px]">{c.strategy}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono mt-1">{c.id}</p>
+                        {c.enabled_clients.length > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                                {c.enabled_clients.length} enabled client{c.enabled_clients.length !== 1 ? "s" : ""}
+                            </p>
+                        )}
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0RolesView: React.FC<{ data: Auth0Role[] }> = ({ data }) => (
+    <div className="space-y-3">
+        <Badge variant="outline">{data.length} role{data.length !== 1 ? "s" : ""}</Badge>
+        {data.length === 0 ? (
+            <EmptyState icon={Shield} message="No roles defined" />
+        ) : (
+            <div className="space-y-2">
+                {data.map((r) => (
+                    <div key={r.id} className="rounded-lg border p-3">
+                        <p className="text-sm font-medium">{r.name}</p>
+                        {r.description && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{r.description}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground font-mono mt-1">{r.id}</p>
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0UserRolesView: React.FC<{
+    data: { userId: string; roles: Auth0Role[] };
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        <p className="text-xs text-muted-foreground font-mono">{data.userId}</p>
+        <Badge variant="outline">{data.roles.length} role{data.roles.length !== 1 ? "s" : ""}</Badge>
+        {data.roles.length === 0 ? (
+            <EmptyState icon={Shield} message="No roles assigned" />
+        ) : (
+            <div className="space-y-2">
+                {data.roles.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between rounded-lg border p-3">
+                        <div>
+                            <p className="text-sm font-medium">{r.name}</p>
+                            {r.description && (
+                                <p className="text-xs text-muted-foreground">{r.description}</p>
+                            )}
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-destructive hover:text-destructive"
+                            onClick={() => onAction("auth0-remove-role", `${data.userId}::${r.id}`)}
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0OrgsView: React.FC<{
+    data: Auth0ListResult<Auth0Organization>;
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        <Badge variant="outline">{data.total} organization{data.total !== 1 ? "s" : ""}</Badge>
+        {data.items.length === 0 ? (
+            <EmptyState icon={Building2} message="No organizations found" />
+        ) : (
+            <div className="space-y-2">
+                {data.items.map((o) => (
+                    <button
+                        key={o.id}
+                        type="button"
+                        className="w-full flex items-center justify-between rounded-lg border p-3 text-left hover:bg-accent cursor-pointer transition-colors"
+                        onClick={() => onAction("auth0-view-org-members", o.id)}
+                    >
+                        <div>
+                            <p className="text-sm font-medium">{o.display_name || o.name}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{o.id}</p>
+                        </div>
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0OrgMembersView: React.FC<{
+    data: { orgId: string; members: Auth0OrgMember[] };
+}> = ({ data }) => (
+    <div className="space-y-3">
+        <p className="text-xs text-muted-foreground font-mono">{data.orgId}</p>
+        <Badge variant="outline">{data.members.length} member{data.members.length !== 1 ? "s" : ""}</Badge>
+        {data.members.length === 0 ? (
+            <EmptyState icon={Users} message="No members found" />
+        ) : (
+            <div className="space-y-2">
+                {data.members.map((m) => (
+                    <div key={m.user_id} className="flex items-center gap-3 rounded-lg border p-3">
+                        {m.picture ? (
+                            <img src={m.picture} alt="" className="h-8 w-8 rounded-full" />
+                        ) : (
+                            <User className="h-8 w-8 p-1.5 rounded-full bg-muted" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{m.name || m.email || m.user_id}</p>
+                            <p className="text-xs text-muted-foreground truncate">{m.email || "No email"}</p>
+                        </div>
+                        {m.roles.length > 0 && (
+                            <div className="flex gap-1 shrink-0">
+                                {m.roles.map((r) => (
+                                    <Badge key={r.id} variant="secondary" className="text-[10px]">{r.name}</Badge>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0LogsView: React.FC<{
+    data: Auth0ListResult<Auth0LogEvent>;
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        <Badge variant="outline">{data.total} log event{data.total !== 1 ? "s" : ""}</Badge>
+        {data.items.length === 0 ? (
+            <EmptyState icon={Activity} message="No log events found" />
+        ) : (
+            <div className="space-y-2">
+                {data.items.map((e) => (
+                    <button
+                        key={e.log_id}
+                        type="button"
+                        className="w-full flex items-center gap-3 rounded-lg border p-3 text-left hover:bg-accent cursor-pointer transition-colors"
+                        onClick={() => onAction("auth0-view-log", e.log_id)}
+                    >
+                        <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-[10px]">{e.event_type}</Badge>
+                                {e.client_name && (
+                                    <span className="text-xs text-muted-foreground truncate">{e.client_name}</span>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                {e.description || e.user_name || e.user_id || "—"}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                                {new Date(e.date).toLocaleString()}
+                                {e.ip && ` · ${e.ip}`}
+                            </p>
+                        </div>
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    </button>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0LogDetailView: React.FC<{ data: Record<string, unknown> }> = ({ data }) => (
+    <div className="space-y-3">
+        <div className="rounded-lg border relative">
+            <pre className="text-xs p-3 overflow-auto max-h-96 font-mono">
+                {JSON.stringify(data, null, 2)}
+            </pre>
+            <CopyButton text={JSON.stringify(data, null, 2)} />
+        </div>
+    </div>
+);
+
+const Auth0ClientsView: React.FC<{
+    data: Auth0Client[];
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        <Badge variant="outline">{data.length} client{data.length !== 1 ? "s" : ""}</Badge>
+        {data.length === 0 ? (
+            <EmptyState icon={Layers} message="No clients found" />
+        ) : (
+            <div className="space-y-2">
+                {data.map((c) => (
+                    <button
+                        key={c.client_id}
+                        type="button"
+                        className="w-full flex items-center justify-between rounded-lg border p-3 text-left hover:bg-accent cursor-pointer transition-colors"
+                        onClick={() => onAction("auth0-view-client", c.client_id)}
+                    >
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{c.name}</p>
+                            <p className="text-xs text-muted-foreground font-mono truncate">{c.client_id}</p>
+                            {c.app_type && (
+                                <Badge variant="secondary" className="text-[10px] mt-1">{c.app_type}</Badge>
+                            )}
+                        </div>
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    </button>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0ClientDetailView: React.FC<{ data: Auth0ClientDetail }> = ({ data }) => (
+    <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard label="Name" value={data.name} />
+            <InfoCard label="Client ID" value={data.client_id} />
+            <InfoCard label="App Type" value={data.app_type || "—"} />
+            <InfoCard label="First Party" value={data.is_first_party === null ? "—" : data.is_first_party ? "Yes" : "No"} />
+            <InfoCard label="Token Auth Method" value={data.token_endpoint_auth_method || "—"} />
+        </div>
+        {data.callbacks.length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-1">Callbacks</p>
+                {data.callbacks.map((url, i) => (
+                    <p key={i} className="text-xs font-mono break-all">{url}</p>
+                ))}
+            </div>
+        )}
+        {data.allowed_origins.length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-1">Allowed Origins</p>
+                {data.allowed_origins.map((url, i) => (
+                    <p key={i} className="text-xs font-mono break-all">{url}</p>
+                ))}
+            </div>
+        )}
+        {data.allowed_logout_urls.length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-1">Allowed Logout URLs</p>
+                {data.allowed_logout_urls.map((url, i) => (
+                    <p key={i} className="text-xs font-mono break-all">{url}</p>
+                ))}
+            </div>
+        )}
+        {data.grant_types.length > 0 && (
+            <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground mb-1">Grant Types</p>
+                <div className="flex flex-wrap gap-1">
+                    {data.grant_types.map((g) => (
+                        <Badge key={g} variant="secondary" className="text-[10px]">{g}</Badge>
+                    ))}
+                </div>
+            </div>
+        )}
+    </div>
+);
+
+const Auth0JwtView: React.FC<{ data: Auth0JwtResult }> = ({ data }) => (
+    <div className="space-y-3">
+        <div
+            className={`flex items-start gap-3 rounded-lg border p-4 ${data.valid
+                ? "border-green-500/50 bg-green-500/10"
+                : "border-destructive/50 bg-destructive/10"
+                }`}
+        >
+            {data.valid ? (
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+            ) : (
+                <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+            )}
+            <div className="space-y-1">
+                <p className="text-sm font-medium">
+                    {data.valid ? "JWT is valid" : "JWT verification failed"}
+                </p>
+                {data.error && (
+                    <p className="text-sm text-muted-foreground">{data.error}</p>
+                )}
+            </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+            <InfoCard label="Signature" value={data.signature_verified ? "Verified" : "Not verified"} />
+            <InfoCard label="Expired" value={data.expired ? "Yes" : "No"} />
+            {data.issued_at && (
+                <InfoCard label="Issued At" value={new Date(data.issued_at * 1000).toLocaleString()} />
+            )}
+            {data.expires_at && (
+                <InfoCard label="Expires At" value={new Date(data.expires_at * 1000).toLocaleString()} />
+            )}
+        </div>
+        <div className="rounded-lg border relative">
+            <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Header</p>
+            <pre className="text-xs p-2 overflow-auto max-h-24 font-mono">
+                {JSON.stringify(data.header, null, 2)}
+            </pre>
+        </div>
+        <div className="rounded-lg border relative">
+            <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Payload</p>
+            <pre className="text-xs p-2 overflow-auto max-h-48 font-mono">
+                {JSON.stringify(data.payload, null, 2)}
+            </pre>
+            <CopyButton text={JSON.stringify(data.payload, null, 2)} />
+        </div>
+    </div>
+);
+
+const Auth0JwksView: React.FC<{ data: Record<string, unknown> }> = ({ data }) => (
+    <div className="space-y-3">
+        <div className="rounded-lg border relative">
+            <pre className="text-xs p-3 overflow-auto max-h-96 font-mono">
+                {JSON.stringify(data, null, 2)}
+            </pre>
+            <CopyButton text={JSON.stringify(data, null, 2)} />
+        </div>
+    </div>
+);
+
+const Auth0TokenView: React.FC<{ data: Auth0TokenResult }> = ({ data }) => (
+    <div className="space-y-3">
+        <div className="flex items-start gap-3 rounded-lg border border-green-500/50 bg-green-500/10 p-4">
+            <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+            <div className="space-y-1">
+                <p className="text-sm font-medium">Token generated</p>
+                <p className="text-xs text-muted-foreground">
+                    {data.token_type} · expires in {data.expires_in}s
+                    {data.scope && ` · scope: ${data.scope}`}
+                </p>
+            </div>
+        </div>
+        <div className="rounded-lg border relative">
+            <p className="text-xs text-muted-foreground p-2 pb-0 font-medium">Access Token</p>
+            <pre className="text-xs p-2 overflow-auto max-h-32 font-mono break-all whitespace-pre-wrap">
+                {data.access_token}
+            </pre>
+            <CopyButton text={data.access_token} />
+        </div>
+    </div>
+);
+
+const Auth0ActionsView: React.FC<{ data: Auth0Action[] }> = ({ data }) => (
+    <div className="space-y-3">
+        <Badge variant="outline">{data.length} action{data.length !== 1 ? "s" : ""}</Badge>
+        {data.length === 0 ? (
+            <EmptyState icon={Activity} message="No actions found" />
+        ) : (
+            <div className="space-y-2">
+                {data.map((a) => (
+                    <div key={a.id} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium">{a.name}</p>
+                            <div className="flex items-center gap-1">
+                                {a.status && <Badge variant="outline" className="text-[10px]">{a.status}</Badge>}
+                                {a.deployed && <Badge variant="secondary" className="text-[10px]">Deployed</Badge>}
+                            </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono mt-1">{a.id}</p>
+                        {a.supported_triggers.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                                {a.supported_triggers.map((t, i) => (
+                                    <Badge key={i} variant="secondary" className="text-[10px]">
+                                        {String(t.id || t.version || JSON.stringify(t))}
+                                    </Badge>
+                                ))}
+                            </div>
+                        )}
+                        {a.updated_at && (
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                                Updated {new Date(a.updated_at).toLocaleString()}
+                            </p>
+                        )}
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0GrantsView: React.FC<{
+    data: Auth0Grant[];
+    onAction: (action: string, id: string) => void;
+}> = ({ data, onAction }) => (
+    <div className="space-y-3">
+        <Badge variant="outline">{data.length} grant{data.length !== 1 ? "s" : ""}</Badge>
+        {data.length === 0 ? (
+            <EmptyState icon={KeyRound} message="No grants found" />
+        ) : (
+            <div className="space-y-2">
+                {data.map((g) => (
+                    <div key={g.id} className="rounded-lg border p-3">
+                        <div className="flex items-center justify-between">
+                            <div className="min-w-0 flex-1">
+                                <p className="text-xs font-mono truncate">{g.id}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    User: <span className="font-mono">{g.user_id}</span>
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Client: <span className="font-mono">{g.client_id}</span>
+                                </p>
+                                {g.audience && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Audience: <span className="font-mono">{g.audience}</span>
+                                    </p>
+                                )}
+                                {g.scope.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {g.scope.map((s) => (
+                                            <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-destructive hover:text-destructive shrink-0"
+                                onClick={() => onAction("auth0-revoke-grant", g.id)}
+                            >
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )}
+    </div>
+);
+
+const Auth0UserDeletedView: React.FC<{ data: { userId: string } }> = ({ data }) => (
+    <div className="flex items-start gap-3 rounded-lg border border-green-500/50 bg-green-500/10 p-4">
+        <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+        <div>
+            <p className="text-sm font-medium">User deleted</p>
+            <p className="text-xs text-muted-foreground font-mono mt-1">{data.userId}</p>
         </div>
     </div>
 );
