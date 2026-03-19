@@ -1,19 +1,91 @@
 name: Release
 
+# ─────────────────────────────────────────────────────────────────
+# Go to GitHub → Actions → Release → Run workflow
+# Enter the version (e.g. 1.2.0) and click Run.
+#
+# This workflow will:
+#   1. Bump versions in package.json, tauri.conf.json, Cargo.toml
+#   2. Commit, tag (v<version>), and push
+#   3. Build for macOS / Windows / Linux → publish GitHub Release
+#   4. Build arm64, sign with Apple Distribution, upload to App Store
+# ─────────────────────────────────────────────────────────────────
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (semver, e.g. 1.2.0)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  # ──────────────────────────────────────────────
-  # Job 1: Build & publish GitHub Release artifacts
-  # (DMG, MSI, deb, AppImage)
-  # ──────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────
+  # Job 1 — Bump all version files, commit, tag, push
+  # ─────────────────────────────────────────────────────────────────
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+      version: ${{ steps.bump.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate version and bump files
+        id: bump
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${VERSION#v}"
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not valid semver: $VERSION"
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+
+          awk -v ver="$VERSION" \
+            '!done && /^version = "[^"]*"/ { print "version = \"" ver "\""; done=1; next } { print }' \
+            src-tauri/Cargo.toml > /tmp/Cargo.toml.tmp
+          mv /tmp/Cargo.toml.tmp src-tauri/Cargo.toml
+
+      - name: Commit, tag, and push
+        run: |
+          TAG="${{ steps.bump.outputs.tag }}"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+          git commit -m "chore: release $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin HEAD --follow-tags
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job 2 — Build all platforms → GitHub Release
+  # ─────────────────────────────────────────────────────────────────
   release:
+    needs: version
     permissions:
       contents: write
     strategy:
@@ -37,6 +109,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -84,16 +158,17 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "AuthPilot ${{ github.ref_name }}"
+          tagName: ${{ needs.version.outputs.tag }}
+          releaseName: "AuthPilot ${{ needs.version.outputs.tag }}"
           releaseBody: |
-            ## AuthPilot ${{ github.ref_name }}
+            ## AuthPilot ${{ needs.version.outputs.tag }}
 
-            ### Download
-            - **macOS (Apple Silicon)**: `.dmg` (aarch64)
-            - **macOS (Intel)**: `.dmg` (x86_64)
-            - **Windows**: `.msi` installer
-            - **Linux**: `.deb` / `.AppImage`
+            | Platform | Download |
+            |---|---|
+            | macOS Apple Silicon | `AuthPilot_*_aarch64.dmg` |
+            | macOS Intel | `AuthPilot_*_x64.dmg` |
+            | Windows | `AuthPilot_*_x64_en-US.msi` |
+            | Linux | `authpilot_*.deb` / `.AppImage` |
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
@@ -105,12 +180,14 @@ jobs:
   # ──────────────────────────────────────────────
   appstore:
     runs-on: macos-latest
-    needs: release
+    needs: [version, release]
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -258,10 +335,10 @@ jobs:
           echo "✅ Uploaded to App Store Connect"
 
       # ── Attach .pkg to the GitHub Release ──────────────────────────
-      - name: Upload .pkg to GitHub Release
+      - name: Attach .pkg to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: AuthPilot.pkg
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ needs.version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
