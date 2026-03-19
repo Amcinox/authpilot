@@ -99,7 +99,7 @@ jobs:
   # ──────────────────────────────────────────────
   # Job 2: Build & upload to Mac App Store
   # Builds arm64, signs with Apple Distribution,
-  # packages as .pkg, uploads via xcrun notarytool
+  # packages as .pkg, uploads via xcrun altool
   # ──────────────────────────────────────────────
   appstore:
     runs-on: macos-latest
@@ -135,7 +135,7 @@ jobs:
             src-tauri/target
           key: macos-cargo-appstore-${{ hashFiles('src-tauri/Cargo.lock') }}
 
-      # Import Apple Distribution certificate (for signing the app)
+      # ── Import certificates into a temporary keychain ──────────────
       - name: Import Apple Distribution certificate
         env:
           APPSTORE_CERTIFICATE: ${{ secrets.APPSTORE_CERTIFICATE }}
@@ -145,56 +145,104 @@ jobs:
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
-          security import /tmp/distribution.p12 -k build.keychain -P "$APPSTORE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import /tmp/distribution.p12 -k build.keychain \
+            -P "$APPSTORE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k actions build.keychain
           rm /tmp/distribution.p12
 
-      # Import Mac Installer Distribution certificate (for signing the .pkg)
       - name: Import Installer certificate
         env:
           INSTALLER_CERTIFICATE: ${{ secrets.INSTALLER_CERTIFICATE }}
           INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.INSTALLER_CERTIFICATE_PASSWORD }}
         run: |
           echo "$INSTALLER_CERTIFICATE" | base64 --decode > /tmp/installer.p12
-          security import /tmp/installer.p12 -k build.keychain -P "$INSTALLER_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+          security import /tmp/installer.p12 -k build.keychain \
+            -P "$INSTALLER_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k actions build.keychain
           rm /tmp/installer.p12
 
-      # Install provisioning profile
       - name: Install provisioning profile
         env:
           PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/AuthPilot.provisionprofile
+          echo "$PROVISIONING_PROFILE" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/AuthPilot.provisionprofile
 
-      # Build the app with Tauri (arm64 only, macOS 12.0+)
+      # ── Build with Tauri (skip Tauri's codesigning — we sign manually) ─
       - name: Build app for App Store
         env:
-          APPLE_SIGNING_IDENTITY: "Apple Distribution: Mohamed Elbssir (UD29PDQT67)"
           MACOSX_DEPLOYMENT_TARGET: "12.0"
+          # Do NOT set APPLE_SIGNING_IDENTITY — prevents Tauri from
+          # signing with Developer ID (we re-sign with Apple Distribution below)
         run: |
           pnpm tauri build --target aarch64-apple-darwin
 
-      # Embed provisioning profile & re-sign with entitlements
-      - name: Prepare App Store bundle
+      # ── Sign for App Store (inside-out) ────────────────────────────
+      - name: Prepare and sign App Store bundle
+        env:
+          SIGNING_IDENTITY: "Apple Distribution: Mohamed Elbssir (UD29PDQT67)"
         run: |
           APP_PATH="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/AuthPilot.app"
-          cp ~/Library/MobileDevice/Provisioning\ Profiles/AuthPilot.provisionprofile "$APP_PATH/Contents/embedded.provisionprofile"
+
+          # Embed provisioning profile
+          cp ~/Library/MobileDevice/Provisioning\ Profiles/AuthPilot.provisionprofile \
+            "$APP_PATH/Contents/embedded.provisionprofile"
+
+          # Strip quarantine attributes
           xattr -cr "$APP_PATH"
-          codesign --force --deep --sign "Apple Distribution: Mohamed Elbssir (UD29PDQT67)" \
+
+          # Sign frameworks & dylibs first (inside-out)
+          if [ -d "$APP_PATH/Contents/Frameworks" ]; then
+            find "$APP_PATH/Contents/Frameworks" -type f \( -name "*.dylib" -o -perm +111 \) | while read -r lib; do
+              codesign --force --options runtime \
+                --sign "$SIGNING_IDENTITY" "$lib"
+            done
+          fi
+
+          # Sign the main binary
+          codesign --force --options runtime \
+            --sign "$SIGNING_IDENTITY" \
+            --entitlements src-tauri/Entitlements.plist \
+            "$APP_PATH/Contents/MacOS/AuthPilot"
+
+          # Sign the overall app bundle
+          codesign --force --options runtime \
+            --sign "$SIGNING_IDENTITY" \
             --entitlements src-tauri/Entitlements.plist \
             "$APP_PATH"
 
-      # Create signed .pkg for App Store
+          # Verify signature
+          codesign --verify --deep --strict "$APP_PATH"
+          echo "✅ App signed for App Store"
+
+      # ── Package as .pkg ────────────────────────────────────────────
       - name: Create App Store .pkg
         run: |
           APP_PATH="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/AuthPilot.app"
-          productbuild --component "$APP_PATH" /Applications \
+          productbuild \
+            --component "$APP_PATH" /Applications \
             --sign "3rd Party Mac Developer Installer: Mohamed Elbssir (UD29PDQT67)" \
             AuthPilot.pkg
+          echo "✅ .pkg created ($(du -h AuthPilot.pkg | cut -f1))"
 
-      # Upload to App Store Connect
+      # ── Validate before uploading ──────────────────────────────────
+      - name: Validate .pkg with App Store Connect
+        run: |
+          xcrun altool --validate-app \
+            --type macos \
+            --file AuthPilot.pkg \
+            --username "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}"
+          echo "✅ Validation passed"
+
+      # ── Upload to App Store Connect ────────────────────────────────
       - name: Upload to App Store Connect
         run: |
           xcrun altool --upload-app \
@@ -203,8 +251,9 @@ jobs:
             --username "${{ secrets.APPLE_ID }}" \
             --password "${{ secrets.APPLE_PASSWORD }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}"
+          echo "✅ Uploaded to App Store Connect"
 
-      # Attach .pkg to the GitHub Release as well
+      # ── Attach .pkg to the GitHub Release ──────────────────────────
       - name: Upload .pkg to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
