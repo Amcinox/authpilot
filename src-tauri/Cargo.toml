@@ -1,6 +1,6 @@
 [package]
 name = "authpilot"
-version = "0.1.0"
+version = "1.0.1"
 description = "AuthPilot — Manage auth provider tokens, secrets, and environments"
 authors = ["Opentecc LTD"]
 edition = "2021"
