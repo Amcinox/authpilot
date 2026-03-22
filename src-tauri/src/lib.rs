@@ -83,6 +83,8 @@ pub fn run() {
             clerk::clerk_add_blocklist,
             clerk::clerk_delete_blocklist,
             clerk::clerk_get_instance,
+            clerk::clerk_sign_in,
+            clerk::clerk_sign_in_get_token,
             // Cognito provider commands
             cognito::cognito_validate,
             cognito::cognito_describe_pool,

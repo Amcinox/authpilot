@@ -50,13 +50,15 @@ export interface ProviderTool {
 
 const clerkTools: ProviderTool[] = [
     { id: "clerk-verify-key", label: "Verify Key", description: "Validate your Clerk secret key", icon: "ShieldCheck" },
+    { id: "clerk-sign-in", label: "Sign In User", description: "Login with email/password and get a session", icon: "LogIn" },
+    { id: "clerk-dev-token", label: "Developer Token", description: "Sign in → pick org → get token with custom expiry", icon: "Zap" },
     { id: "clerk-list-orgs", label: "List Organizations", description: "List all organizations in your instance", icon: "Building2" },
     { id: "clerk-list-users", label: "List Users", description: "List users in your Clerk instance", icon: "Users" },
     { id: "clerk-find-user", label: "Find User by Email", description: "Search for a user by email address", icon: "Search" },
     { id: "clerk-get-user", label: "Get User by ID", description: "Get detailed user info by their ID", icon: "User" },
     { id: "clerk-get-user-orgs", label: "User Organizations", description: "Get organization memberships for a user", icon: "Building2" },
     { id: "clerk-list-sessions", label: "List Sessions", description: "List active sessions (filter by user)", icon: "Activity" },
-    { id: "clerk-create-token", label: "Create Session Token", description: "Generate a JWT for a session", icon: "KeyRound" },
+    { id: "clerk-create-token", label: "Create Session Token", description: "Generate a JWT for a session (org + expiry)", icon: "KeyRound" },
     { id: "clerk-revoke-session", label: "Revoke Session", description: "Revoke an active session", icon: "Ban" },
     { id: "clerk-ban-user", label: "Ban / Unban User", description: "Toggle user ban status", icon: "UserX" },
     { id: "clerk-update-metadata", label: "Update Metadata", description: "Edit user public/private metadata", icon: "FileEdit" },

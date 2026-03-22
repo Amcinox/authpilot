@@ -40,6 +40,7 @@ import {
     clerkAddBlocklist,
     clerkDeleteBlocklist,
     clerkGetInstance,
+    clerkSignIn,
     cognitoValidate,
     cognitoDescribePool,
     cognitoListUsers,
@@ -94,6 +95,7 @@ import {
     type ClerkJwtResult,
     type ClerkInvitation,
     type ClerkAllowBlockIdentifier,
+    type ClerkSignInResult,
     type CognitoValidateResult,
     type CognitoUserDetail,
     type CognitoPoolStats,
@@ -155,6 +157,8 @@ import {
     UserCheck,
     Layers,
     LogOut,
+    LogIn,
+    Zap,
     BarChart3,
 } from "lucide-react";
 
@@ -177,6 +181,8 @@ const iconMap: Record<string, React.FC<{ className?: string }>> = {
     UserCheck,
     Layers,
     LogOut,
+    LogIn,
+    Zap,
     BarChart3,
 };
 
@@ -190,6 +196,7 @@ type ToolResult =
     | { type: "clerk-user-orgs"; data: ClerkListResult<ClerkUserOrgMembership> }
     | { type: "clerk-sessions"; data: ClerkListResult<ClerkSession> }
     | { type: "clerk-token"; data: ClerkSessionToken }
+    | { type: "clerk-sign-in"; data: ClerkSignInResult }
     | { type: "clerk-session-revoked"; data: ClerkSession }
     | { type: "clerk-user-banned"; data: ClerkUserDetail }
     | { type: "clerk-user-unbanned"; data: ClerkUserDetail }
@@ -257,6 +264,20 @@ interface NavEntry {
 
 interface TokenPickerState {
     sessionId: string;
+    loading: boolean;
+    /** User's org memberships — loaded when opening the picker */
+    orgs?: ClerkUserOrgMembership[];
+    /** Currently selected org (null = personal / no org) */
+    selectedOrgId?: string | null;
+}
+
+// ─── Sign-in form config ─────────────────────────────────────────────────────
+
+interface ClerkSignInFormState {
+    /** After sign-in mode: just sign in, or sign in + get token */
+    mode: "sign-in" | "dev-token";
+    identifier: string;
+    password: string;
     loading: boolean;
 }
 
@@ -332,6 +353,9 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
 
     // Token picker state
     const [tokenPicker, setTokenPicker] = useState<TokenPickerState | null>(null);
+
+    // Clerk sign-in form state
+    const [clerkSignInForm, setClerkSignInForm] = useState<ClerkSignInFormState | null>(null);
 
     // Cognito auth form state (initiate auth — needs username + password)
     const [authForm, setAuthForm] = useState<{ username: string; password: string } | null>(null);
@@ -489,6 +513,16 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                     setResult({ type: "clerk-verify", data });
                     break;
                 }
+                case "clerk-sign-in": {
+                    if (!checkRequiredSecrets(["secretKey"])) break;
+                    setClerkSignInForm({ mode: "sign-in", identifier: "", password: "", loading: false });
+                    break;
+                }
+                case "clerk-dev-token": {
+                    if (!checkRequiredSecrets(["secretKey"])) break;
+                    setClerkSignInForm({ mode: "dev-token", identifier: "", password: "", loading: false });
+                    break;
+                }
                 case "clerk-list-orgs": {
                     if (!checkRequiredSecrets(["secretKey"])) break;
                     const data = await clerkListOrganizations(getSecret("secretKey"));
@@ -531,8 +565,23 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                 case "clerk-create-token": {
                     if (!checkRequiredSecrets(["secretKey"])) break;
                     if (!inputVal) { addToast({ type: "error", message: "Session ID is required" }); break; }
-                    const data = await clerkCreateSessionToken(getSecret("secretKey"), inputVal);
-                    setResult({ type: "clerk-token", data });
+                    // Get user_id from the session, then load their orgs
+                    const sk = getSecret("secretKey");
+                    const sessions = await clerkListSessions(sk, undefined, "active");
+                    const sess = sessions.data.find(s => s.id === inputVal);
+                    let userOrgs: ClerkUserOrgMembership[] = [];
+                    if (sess) {
+                        try {
+                            const orgResult = await clerkGetUserOrgs(sk, sess.user_id, 500);
+                            userOrgs = orgResult.data;
+                        } catch { /* user may have no orgs */ }
+                    }
+                    setTokenPicker({
+                        sessionId: inputVal,
+                        loading: false,
+                        orgs: userOrgs,
+                        selectedOrgId: null,
+                    });
                     break;
                 }
                 case "clerk-revoke-session": {
@@ -1109,9 +1158,19 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                     break;
                 }
                 case "session-create-token": {
+                    const [sessId, userId] = id.split("|");
+                    let sessOrgs: ClerkUserOrgMembership[] = [];
+                    if (userId) {
+                        try {
+                            const orgRes = await clerkGetUserOrgs(sk, userId, 500);
+                            sessOrgs = orgRes.data;
+                        } catch { /* user may have no orgs */ }
+                    }
                     setTokenPicker({
-                        sessionId: id,
+                        sessionId: sessId,
                         loading: false,
+                        orgs: sessOrgs,
+                        selectedOrgId: null,
                     });
                     break;
                 }
@@ -1153,9 +1212,16 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                         setResultTitle("No Active Session");
                         break;
                     }
+                    let ugtOrgs: ClerkUserOrgMembership[] = [];
+                    try {
+                        const orgRes = await clerkGetUserOrgs(sk, id, 500);
+                        ugtOrgs = orgRes.data;
+                    } catch { /* user may have no orgs */ }
                     setTokenPicker({
                         sessionId: activeSession.id,
                         loading: false,
+                        orgs: ugtOrgs,
+                        selectedOrgId: null,
                     });
                     break;
                 }
@@ -1305,13 +1371,13 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                     <DialogHeader>
                         <DialogTitle>Create Session Token</DialogTitle>
                         <DialogDescription>
-                            Choose expiry and generate a session token
+                            Choose organization context, expiry and generate a session token
                         </DialogDescription>
                     </DialogHeader>
                     {tokenPicker && (
                         <TokenPicker
                             picker={tokenPicker}
-                            onSelect={async (expiresIn) => {
+                            onSelect={async (expiresIn, organizationId) => {
                                 if (!selectedEnv) return;
                                 setTokenPicker({ ...tokenPicker, loading: true });
                                 try {
@@ -1319,6 +1385,7 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                                         getSecret("secretKey"),
                                         tokenPicker.sessionId,
                                         expiresIn,
+                                        organizationId ?? undefined,
                                     );
                                     setTokenPicker(null);
                                     pushNav();
@@ -1330,6 +1397,105 @@ export const ProviderToolsPanel: React.FC<ProviderToolsPanelProps> = ({
                                 }
                             }}
                         />
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Clerk Sign-In Form Dialog */}
+            <Dialog open={clerkSignInForm !== null} onOpenChange={() => setClerkSignInForm(null)}>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {clerkSignInForm?.mode === "dev-token" ? "Developer Token" : "Sign In User"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {clerkSignInForm?.mode === "dev-token"
+                                ? "Sign in to get an org-scoped token with custom expiry"
+                                : "Authenticate a user with email and password"}
+                        </DialogDescription>
+                    </DialogHeader>
+                    {clerkSignInForm && (
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-medium text-muted-foreground">Email / Username</label>
+                                <Input
+                                    placeholder="user@example.com or username"
+                                    value={clerkSignInForm.identifier}
+                                    onChange={(e) => setClerkSignInForm({ ...clerkSignInForm, identifier: e.target.value })}
+                                    disabled={clerkSignInForm.loading}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-medium text-muted-foreground">
+                                    Password <span className="text-muted-foreground/60 font-normal">(optional)</span>
+                                </label>
+                                <Input
+                                    type="password"
+                                    placeholder="Leave blank to use admin access"
+                                    value={clerkSignInForm.password}
+                                    onChange={(e) => setClerkSignInForm({ ...clerkSignInForm, password: e.target.value })}
+                                    disabled={clerkSignInForm.loading}
+                                />
+                                <p className="text-[11px] text-muted-foreground">
+                                    Enter a password to verify it. Leave blank to sign in via admin secret key (works for social login users too).
+                                </p>
+                            </div>
+                            <Button
+                                className="w-full"
+                                disabled={clerkSignInForm.loading || !clerkSignInForm.identifier}
+                                onClick={async () => {
+                                    if (!selectedEnv) return;
+                                    const sk = getSecret("secretKey");
+                                    const mode = clerkSignInForm.mode;
+                                    setClerkSignInForm({ ...clerkSignInForm, loading: true });
+                                    try {
+                                        const signInResult = await clerkSignIn(sk, clerkSignInForm.identifier, clerkSignInForm.password);
+                                        if (mode === "dev-token") {
+                                            // Dev token flow: sign in → load orgs → open token picker
+                                            if (!signInResult.session_id) {
+                                                throw new Error("User found and verified, but no active session exists. On production instances the user needs to sign in via your app first.");
+                                            }
+                                            let devOrgs: ClerkUserOrgMembership[] = [];
+                                            if (signInResult.user_id) {
+                                                try {
+                                                    const orgRes = await clerkGetUserOrgs(sk, signInResult.user_id, 500);
+                                                    devOrgs = orgRes.data;
+                                                } catch { /* user may have no orgs */ }
+                                            }
+                                            setClerkSignInForm(null);
+                                            setTokenPicker({
+                                                sessionId: signInResult.session_id,
+                                                loading: false,
+                                                orgs: devOrgs,
+                                                selectedOrgId: null,
+                                            });
+                                        } else {
+                                            // Simple sign-in: show result
+                                            setClerkSignInForm(null);
+                                            pushNav();
+                                            setResult({ type: "clerk-sign-in", data: signInResult });
+                                            setResultTitle("Sign In Result");
+                                        }
+                                    } catch (err) {
+                                        setClerkSignInForm(null);
+                                        setResult({ type: "error", message: err instanceof Error ? err.message : String(err) });
+                                        setResultTitle("Sign In Failed");
+                                    }
+                                }}
+                            >
+                                {clerkSignInForm.loading ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                        Signing in…
+                                    </>
+                                ) : (
+                                    <>
+                                        <LogIn className="h-4 w-4 mr-2" />
+                                        {clerkSignInForm.mode === "dev-token" ? "Sign In & Get Token" : "Sign In"}
+                                    </>
+                                )}
+                            </Button>
+                        </div>
                     )}
                 </DialogContent>
             </Dialog>
@@ -1469,13 +1635,49 @@ const EXPIRY_OPTIONS = [
 
 const TokenPicker: React.FC<{
     picker: TokenPickerState;
-    onSelect: (expiresIn?: number) => void;
+    onSelect: (expiresIn?: number, organizationId?: string | null) => void;
 }> = ({ picker, onSelect }) => {
     const [expiryIdx, setExpiryIdx] = useState(0);
+    const [selectedOrg, setSelectedOrg] = useState<string | null>(picker.selectedOrgId ?? null);
     const expiry = EXPIRY_OPTIONS[expiryIdx].value;
 
     return (
         <div className="space-y-4">
+            {/* Organization selector — shown when user has orgs */}
+            {picker.orgs && picker.orgs.length > 0 && (
+                <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5" />
+                        Organization Context
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                        <button
+                            type="button"
+                            className={`text-xs px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${selectedOrg === null
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "hover:bg-accent border-border"
+                                }`}
+                            onClick={() => setSelectedOrg(null)}
+                        >
+                            Personal
+                        </button>
+                        {picker.orgs.map((org) => (
+                            <button
+                                key={org.organization.id}
+                                type="button"
+                                className={`text-xs px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${selectedOrg === org.organization.id
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "hover:bg-accent border-border"
+                                    }`}
+                                onClick={() => setSelectedOrg(org.organization.id)}
+                            >
+                                {org.organization.name} ({org.role})
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Expiry selector */}
             <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -1503,8 +1705,9 @@ const TokenPicker: React.FC<{
             <div className="flex items-start gap-2 rounded-md border bg-muted/50 p-2.5 text-xs text-muted-foreground">
                 <Shield className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <p>
-                    The token will reflect the session's current active organization context,
-                    which is set by the user in your app via Clerk's frontend SDK.
+                    {selectedOrg
+                        ? "The token will be scoped to the selected organization."
+                        : "The token will be for the user's personal context (no organization)."}
                 </p>
             </div>
 
@@ -1512,7 +1715,7 @@ const TokenPicker: React.FC<{
             <Button
                 className="w-full"
                 disabled={picker.loading}
-                onClick={() => onSelect(expiry)}
+                onClick={() => onSelect(expiry, selectedOrg)}
             >
                 {picker.loading ? (
                     <>
@@ -1572,6 +1775,9 @@ const ToolResultView: React.FC<{
 
         case "clerk-token":
             return <ClerkTokenView data={result.data} />;
+
+        case "clerk-sign-in":
+            return <ClerkSignInResultView data={result.data} />;
 
         case "clerk-session-revoked":
             return <ClerkSessionRevokedView data={result.data} />;
@@ -3223,7 +3429,7 @@ const ClerkSessionsView: React.FC<{
                                         variant="outline"
                                         size="sm"
                                         className="h-7 text-xs"
-                                        onClick={() => onAction("session-create-token", s.id)}
+                                        onClick={() => onAction("session-create-token", `${s.id}|${s.user_id}`)}
                                     >
                                         <KeyRound className="h-3 w-3 mr-1" />
                                         Create Token
@@ -3286,39 +3492,89 @@ const ClerkTokenView: React.FC<{ data: ClerkSessionToken }> = ({ data }) => {
                             />
                         )}
                     </div>
-                    {/* Org claims */}
-                    {(claims.org_id || claims.org_slug || claims.org_role) && (
-                        <div className="rounded-lg border p-2.5 space-y-1.5">
-                            <p className="text-xs font-medium flex items-center gap-1.5">
-                                <Building2 className="h-3 w-3" />
-                                Organization Context
-                            </p>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                                {claims.org_id && (
-                                    <div>
-                                        <span className="text-muted-foreground">ID: </span>
-                                        <span className="font-mono">{String(claims.org_id)}</span>
-                                    </div>
-                                )}
-                                {claims.org_slug && (
-                                    <div>
-                                        <span className="text-muted-foreground">Slug: </span>
-                                        <span className="font-mono">{String(claims.org_slug)}</span>
-                                    </div>
-                                )}
-                                {claims.org_role && (
-                                    <div>
-                                        <span className="text-muted-foreground">Role: </span>
-                                        <Badge variant="secondary" className="text-[10px] px-1 py-0 capitalize">
-                                            {String(claims.org_role).replace("org:", "")}
-                                        </Badge>
-                                    </div>
-                                )}
+                    {/* Org claims — Clerk v2 uses nested "o" and "organization" objects */}
+                    {(() => {
+                        const o = claims.o as Record<string, unknown> | undefined;
+                        const organization = claims.organization as Record<string, unknown> | undefined;
+                        const orgId = String(claims.org_id ?? o?.id ?? organization?.id ?? "");
+                        const orgSlug = String(claims.org_slug ?? o?.slg ?? organization?.slug ?? "");
+                        const orgRole = String(claims.org_role ?? o?.rol ?? organization?.role ?? "");
+                        const orgName = organization?.name ? String(organization.name) : "";
+                        if (!orgId && !orgSlug && !orgRole) return null;
+                        return (
+                            <div className="rounded-lg border p-2.5 space-y-1.5">
+                                <p className="text-xs font-medium flex items-center gap-1.5">
+                                    <Building2 className="h-3 w-3" />
+                                    Organization Context
+                                </p>
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                    {orgName && (
+                                        <div className="col-span-2">
+                                            <span className="text-muted-foreground">Name: </span>
+                                            <span className="font-medium">{orgName}</span>
+                                        </div>
+                                    )}
+                                    {orgId && (
+                                        <div>
+                                            <span className="text-muted-foreground">ID: </span>
+                                            <span className="font-mono">{orgId}</span>
+                                        </div>
+                                    )}
+                                    {orgSlug && (
+                                        <div>
+                                            <span className="text-muted-foreground">Slug: </span>
+                                            <span className="font-mono">{orgSlug}</span>
+                                        </div>
+                                    )}
+                                    {orgRole && (
+                                        <div>
+                                            <span className="text-muted-foreground">Role: </span>
+                                            <Badge variant="secondary" className="text-[10px] px-1 py-0 capitalize">
+                                                {orgRole.replace("org:", "")}
+                                            </Badge>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        );
+                    })()}
                 </div>
             )}
+        </div>
+    );
+};
+
+// ─── Clerk Sign-In Result ────────────────────────────────────────────────────
+
+const ClerkSignInResultView: React.FC<{ data: ClerkSignInResult }> = ({ data }) => {
+    const isSuccess = data.status === "verified" || data.status === "complete";
+    return (
+        <div className="space-y-3">
+            <div className={`flex items-start gap-3 rounded-lg border p-4 ${isSuccess
+                ? "border-green-500/50 bg-green-500/10"
+                : "border-yellow-500/50 bg-yellow-500/10"
+                }`}>
+                {isSuccess ? (
+                    <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+                ) : (
+                    <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
+                )}
+                <div className="space-y-1 min-w-0 flex-1">
+                    <p className={`text-sm font-medium ${isSuccess ? "text-green-700 dark:text-green-400" : "text-yellow-700 dark:text-yellow-400"}`}>
+                        {isSuccess ? "Sign-In Successful" : `Sign-In Status: ${data.status}`}
+                    </p>
+                    {data.identifier && (
+                        <p className="text-xs text-muted-foreground">
+                            Authenticated as <span className="font-mono">{data.identifier}</span>
+                        </p>
+                    )}
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                {data.session_id && <MiniCard icon={KeyRound} label="Session ID" value={data.session_id} />}
+                {data.user_id && <MiniCard icon={User} label="User ID" value={data.user_id} />}
+                <MiniCard icon={Shield} label="Status" value={data.status} />
+            </div>
         </div>
     );
 };

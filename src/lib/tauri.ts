@@ -152,6 +152,13 @@ export interface ClerkSessionToken {
   jwt: string;
 }
 
+export interface ClerkSignInResult {
+  session_id: string | null;
+  user_id: string | null;
+  status: string;
+  identifier: string | null;
+}
+
 export interface ClerkUserOrgMembership {
   id: string;
   role: string;
@@ -248,8 +255,9 @@ export async function clerkCreateSessionToken(
   secretKey: string,
   sessionId: string,
   expiresInSeconds?: number,
+  organizationId?: string,
 ): Promise<ClerkSessionToken> {
-  return invoke<ClerkSessionToken>("clerk_create_session_token", { secretKey, sessionId, expiresInSeconds });
+  return invoke<ClerkSessionToken>("clerk_create_session_token", { secretKey, sessionId, expiresInSeconds, organizationId });
 }
 
 /**
@@ -448,6 +456,34 @@ export async function clerkDeleteBlocklist(
   identifierId: string,
 ): Promise<unknown> {
   return invoke("clerk_delete_blocklist", { secretKey, identifierId });
+}
+
+/**
+ * Sign in a user with email/username + password.
+ * Creates a session and returns the session ID.
+ */
+export async function clerkSignIn(
+  secretKey: string,
+  identifier: string,
+  password: string,
+): Promise<ClerkSignInResult> {
+  return invoke<ClerkSignInResult>("clerk_sign_in", { secretKey, identifier, password });
+}
+
+/**
+ * Sign in a user and immediately get a token.
+ * Combines sign-in + token creation. Optionally scope to an org and set expiry.
+ */
+export async function clerkSignInGetToken(
+  secretKey: string,
+  identifier: string,
+  password: string,
+  organizationId?: string,
+  expiresInSeconds?: number,
+): Promise<ClerkSessionToken> {
+  return invoke<ClerkSessionToken>("clerk_sign_in_get_token", {
+    secretKey, identifier, password, organizationId, expiresInSeconds,
+  });
 }
 
 // ─── Cognito Provider Commands ───────────────────────────────────────────────

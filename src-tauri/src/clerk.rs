@@ -30,13 +30,19 @@ pub struct ClerkVerifyResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClerkOrg {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub slug: Option<String>,
+    #[serde(default)]
     pub members_count: Option<i64>,
+    #[serde(default)]
     pub created_at: Option<i64>,
+    /// Catch any extra fields Clerk sends so deserialization never fails
+    #[serde(flatten)]
+    pub _extra: std::collections::HashMap<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -92,11 +98,24 @@ pub struct ClerkSessionToken {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ClerkSignInResult {
+    pub session_id: Option<String>,
+    pub user_id: Option<String>,
+    pub status: String,
+    pub identifier: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClerkUserOrgMembership {
     pub id: String,
+    #[serde(default)]
     pub role: String,
     pub organization: ClerkOrg,
+    #[serde(default)]
     pub created_at: Option<i64>,
+    /// Catch any extra fields Clerk sends so deserialization never fails
+    #[serde(flatten)]
+    pub _extra: std::collections::HashMap<String, Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -346,7 +365,7 @@ pub async fn clerk_get_user_orgs(
     limit: Option<u32>,
 ) -> Result<ClerkListResult<ClerkUserOrgMembership>, String> {
     let http = client(&secret_key)?;
-    let limit = limit.unwrap_or(20);
+    let limit = limit.unwrap_or(500);
 
     let resp = http
         .get(format!(
@@ -414,6 +433,7 @@ pub async fn clerk_create_session_token(
     secret_key: String,
     session_id: String,
     expires_in_seconds: Option<u64>,
+    organization_id: Option<String>,
 ) -> Result<ClerkSessionToken, String> {
     let http = client(&secret_key)?;
 
@@ -426,6 +446,9 @@ pub async fn clerk_create_session_token(
     let mut body = serde_json::Map::new();
     if let Some(exp) = expires_in_seconds {
         body.insert("expires_in_seconds".to_string(), Value::Number(serde_json::Number::from(exp)));
+    }
+    if let Some(ref org) = organization_id {
+        body.insert("organization_id".to_string(), Value::String(org.clone()));
     }
     req = req.json(&Value::Object(body));
 
@@ -1120,6 +1143,239 @@ pub async fn clerk_delete_blocklist(
     resp.json::<Value>().await.map_err(|e| e.to_string())
 }
 
+/// Sign in a user as an admin using the Backend API secret key.
+///
+/// Flow:
+/// 1. Look up the user by email or username
+/// 2. If a password is provided, verify it (optional — for testing password auth)
+/// 3. Find an existing active session, or create one (dev instances)
+/// 4. Return session + user info
+///
+/// Password is OPTIONAL. As an admin with the secret key you can create sessions
+/// without knowing the user's password. Leave it empty to skip verification.
+#[tauri::command]
+pub async fn clerk_sign_in(
+    secret_key: String,
+    identifier: String,
+    password: String,
+) -> Result<ClerkSignInResult, String> {
+    let http = client(&secret_key)?;
+
+    // ── Step 1: Find user by email / username / query ──────────────────
+    let is_email = identifier.contains('@');
+    // If input looks like an email, extract the local part as a potential username
+    let local_part: Option<String> = if is_email {
+        identifier.split('@').next().map(|s| s.to_lowercase())
+    } else {
+        None
+    };
+
+    // Helper: try a GET request and return the parsed JSON array
+    let fetch_users = |url: String| {
+        let http_ref = &http;
+        async move {
+            let resp = http_ref.get(&url).send().await.ok()?;
+            if !resp.status().is_success() { return None; }
+            let body: Value = resp.json().await.ok()?;
+            body.as_array().cloned()
+        }
+    };
+
+    // Helper: check if a user JSON object matches by email
+    let email_matches = |u: &Value, email: &str| -> bool {
+        u.get("email_addresses")
+            .and_then(|v| v.as_array())
+            .map(|emails| {
+                emails.iter().any(|ea| {
+                    ea.get("email_address")
+                        .and_then(|v| v.as_str())
+                        .map(|e| e.eq_ignore_ascii_case(email))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    };
+
+    // Helper: check if a user JSON object matches by username
+    let username_matches = |u: &Value, uname: &str| -> bool {
+        u.get("username")
+            .and_then(|v| v.as_str())
+            .map(|un| un.eq_ignore_ascii_case(uname))
+            .unwrap_or(false)
+    };
+
+    let mut user: Option<Value> = None;
+
+    // Strategy 1: Exact email lookup (if identifier contains @)
+    if is_email && user.is_none() {
+        let url = format!("{}/users?email_address[]={}", CLERK_API_BASE, urlencoding::encode(&identifier));
+        if let Some(arr) = fetch_users(url).await {
+            user = arr.into_iter().find(|u| email_matches(u, &identifier));
+        }
+    }
+
+    // Strategy 2: Exact username lookup
+    //   - For non-email input: try identifier as-is
+    //   - For email input: try the local part (amcinox@gmail.com → amcinox)
+    if user.is_none() {
+        let uname = if is_email { local_part.as_deref().unwrap_or("") } else { &identifier };
+        if !uname.is_empty() {
+            let url = format!("{}/users?username[]={}", CLERK_API_BASE, urlencoding::encode(uname));
+            if let Some(arr) = fetch_users(url).await {
+                user = arr.into_iter().find(|u| username_matches(u, uname));
+            }
+        }
+    }
+
+    // Strategy 3: Broad query search as last resort
+    //   Clerk's `query` param searches across emails, usernames, names, phone numbers
+    if user.is_none() {
+        let url = format!("{}/users?query={}&limit=10", CLERK_API_BASE, urlencoding::encode(&identifier));
+        if let Some(arr) = fetch_users(url).await {
+            // Prefer exact email match, then exact username match, then local-part username match
+            user = arr.iter().find(|u| email_matches(u, &identifier)).cloned()
+                .or_else(|| arr.iter().find(|u| username_matches(u, &identifier)).cloned())
+                .or_else(|| {
+                    local_part.as_deref().and_then(|lp| {
+                        arr.iter().find(|u| username_matches(u, lp)).cloned()
+                    })
+                });
+        }
+    }
+
+    let user = user.ok_or_else(|| format!("No user found with identifier: {}", identifier))?;
+    let user_id = user.get("id").and_then(|v| v.as_str()).ok_or("User has no id")?;
+
+    // Check if user is banned or locked
+    if user.get("banned").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Err("This user is banned.".to_string());
+    }
+    if user.get("locked").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Err("This user account is locked.".to_string());
+    }
+
+    // ── Step 2: Verify password (only if one was provided) ───────────────
+    // Password is optional — admin secret key grants session creation without it.
+    // Provide a password only to test that the user's password auth is working.
+    if !password.is_empty() {
+        let verify_body = serde_json::json!({ "password": password });
+        let verify_resp = http
+            .post(format!("{}/users/{}/verify_password", CLERK_API_BASE, user_id))
+            .json(&verify_body)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        let verify_status = verify_resp.status().as_u16();
+        let verify_json: Value = verify_resp.json().await.unwrap_or(Value::Null);
+
+        if verify_status != 200 {
+            let error_code = verify_json
+                .get("errors")
+                .and_then(|e| e.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|e| e.get("code"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("");
+
+            return Err(match error_code {
+                "form_password_incorrect" => "Incorrect password.".to_string(),
+                "user_locked" => "This account is locked.".to_string(),
+                _ => {
+                    let msg = extract_clerk_error(&verify_json);
+                    if msg == "Unknown error" {
+                        format!("Password verification failed (HTTP {}).", verify_status)
+                    } else {
+                        msg
+                    }
+                }
+            });
+        }
+    }
+
+    // ── Step 3: Always create a fresh session ──────────────────────────
+    // We create a new session instead of reusing existing ones because:
+    // - Existing sessions may have a stale "active organization" set which
+    //   overrides the organization_id parameter in the token creation call.
+    // - A fresh session has no active org, so the token endpoint's
+    //   organization_id parameter takes effect.
+    let mut session_id: Option<String> = None;
+
+    // Try to create a new session (works on development instances)
+    let create_body = serde_json::json!({ "user_id": user_id });
+    let create_resp = http
+        .post(format!("{}/sessions", CLERK_API_BASE))
+        .json(&create_body)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    if create_resp.status().is_success() {
+        let create_json: Value = create_resp.json().await.unwrap_or(Value::Null);
+        session_id = create_json.get("id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+    }
+
+    // Fallback: if session creation fails (e.g. production instance),
+    // find an existing active session.
+    if session_id.is_none() {
+        let sessions_resp = http
+            .get(format!("{}/sessions?user_id={}&status=active&limit=1", CLERK_API_BASE, user_id))
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        if sessions_resp.status().is_success() {
+            let sess_body: Value = sessions_resp.json().await.unwrap_or(Value::Null);
+            if let Some(arr) = sess_body.as_array() {
+                session_id = arr.first()
+                    .and_then(|s| s.get("id"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            }
+        }
+    }
+
+    Ok(ClerkSignInResult {
+        session_id,
+        user_id: Some(user_id.to_string()),
+        status: "verified".to_string(),
+        identifier: Some(identifier),
+    })
+}
+
+/// Sign in a user and immediately create a token for the new session.
+/// Combines clerk_sign_in + clerk_create_session_token in one call.
+/// Optionally scope to an organization and set expiry.
+#[tauri::command]
+pub async fn clerk_sign_in_get_token(
+    secret_key: String,
+    identifier: String,
+    password: String,
+    organization_id: Option<String>,
+    expires_in_seconds: Option<u64>,
+) -> Result<ClerkSessionToken, String> {
+    // Step 1: Sign in
+    let sign_in = clerk_sign_in(
+        secret_key.clone(),
+        identifier,
+        password,
+    ).await?;
+
+    let session_id = sign_in.session_id.ok_or(
+        "Password verified but no active session available. The user needs to sign in via your app first, or use a development instance."
+    )?;
+
+    // Step 2: Create token from that session
+    clerk_create_session_token(
+        secret_key,
+        session_id,
+        expires_in_seconds,
+        organization_id,
+    ).await
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn extract_clerk_error(body: &Value) -> String {
@@ -1135,17 +1391,26 @@ fn extract_clerk_error(body: &Value) -> String {
 /// Parse a Clerk list response that may be either:
 /// - A flat JSON array: [{...}, ...]
 /// - An object with data/total_count: { data: [...], total_count: N }
+///
+/// Items are parsed individually — a single bad item won't drop the entire list.
 fn parse_clerk_list<T: serde::de::DeserializeOwned>(body: Value) -> ClerkListResult<T> {
-    if body.is_array() {
-        let data: Vec<T> = serde_json::from_value(body).unwrap_or_default();
-        let total_count = data.len() as i64;
-        ClerkListResult { data, total_count }
+    let (items_value, total_count) = if body.is_array() {
+        let len = body.as_array().map(|a| a.len() as i64).unwrap_or(0);
+        (body, len)
     } else {
-        let total_count = body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0);
-        let data: Vec<T> = body
-            .get("data")
-            .and_then(|d| serde_json::from_value(d.clone()).ok())
-            .unwrap_or_default();
-        ClerkListResult { data, total_count }
-    }
+        let tc = body.get("total_count").and_then(|v| v.as_i64()).unwrap_or(0);
+        let d = body.get("data").cloned().unwrap_or(Value::Array(vec![]));
+        (d, tc)
+    };
+
+    // Parse each item individually so one bad element doesn't kill the list
+    let data: Vec<T> = match items_value.as_array() {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|item| serde_json::from_value::<T>(item.clone()).ok())
+            .collect(),
+        None => vec![],
+    };
+
+    ClerkListResult { data, total_count }
 }
